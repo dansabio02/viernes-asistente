@@ -552,8 +552,8 @@ async function procesarComando(texto) {
       </div>
       <div class="mt-2 font-mono2 text-[10px] text-cyan-200/70 leading-relaxed">
         <b>PASOS PARA ARREGLARLO:</b><br>
-        1. Crea una key <b>nueva</b> en <a href="https://console.groq.com/keys" target="_blank" class="text-cyan-300 underline">console.groq.com/keys</a> (la anterior se filtró y Groq la revocó)<br>
-        2. Pégala en <code>config.js</code><br>
+        1. Crea una key <b>nueva</b> en <a href="https://console.groq.com/keys" target="_blank" class="text-cyan-300 underline">console.groq.com/keys</a><br>
+        2. Pégala en <code>config.local.js</code> (local) o despliega el Worker con ella<br>
         3. Toca <b>AJUSTES → PROBAR CONEXIÓN</b> para ver qué ruta funciona<br>
         4. Si todo falla por CORS, despliega el Worker gratis: ver <code>proxy-worker.js</code>
       </div>`;
