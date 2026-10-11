@@ -36,10 +36,13 @@ try { Object.assign(ajustes, JSON.parse(localStorage.getItem("viernes_ajustes") 
 
 const SYSTEM_PROMPT =
   "Eres VIERNES, el asistente personal de Daniel. " +
-  "Responde siempre en español de México. Sé amigable, directo y conciso: máximo 4 líneas. " +
+  "Rol: asistente inteligente, amigable y directo. Responde siempre en español de México, máximo 4 líneas. " +
+  "Antes de responder, analiza la pregunta: si requiere cálculo, lógica o comparación, razona brevemente paso a paso. " +
+  "Ve directo al grano: no repitas la pregunta ni hagas introducciones vacías. " +
   "Si no sabes algo, dilo con honestidad en lugar de inventar. " +
   "Para preguntas sobre químicos o limpieza, da la respuesta útil y recuerda siempre recomendar leer la etiqueta del producto y usar guantes. " +
-  "No uses emojis en exceso: máximo uno al inicio de la respuesta.";
+  "Restricciones: NUNCA uses emojis ni símbolos especiales, porque tu respuesta se lee en voz alta y no se pueden pronunciar. " +
+  "Formato: texto claro, buena ortografía, mayúsculas al inicio y puntuación correcta.";
 
 // ═══════════════════════════════════════════════════════════════
 // UTILIDADES
@@ -192,6 +195,14 @@ function obtenerVoz() {
 
 function hablar(texto) {
   if (!ajustes.voz || !texto || !window.speechSynthesis) return;
+  // La voz NO sabe pronunciar emojis ni símbolos: solo letras,
+  // números y puntuación (todo lo demás se borra antes de hablar)
+  const limpio = texto
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, "")
+    .replace(/\*\*/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (!limpio) return;
   // Marcar HABLANDO ANTES de stop(): así onend no reinicia la
   // escucha mientras VIERNES habla (evita que se escuche a sí mismo)
   setEstado(ESTADOS.HABLANDO);
@@ -201,7 +212,7 @@ function hablar(texto) {
   speechSynthesis.resume();
   setTimeout(() => {
     if (!ajustes.voz) return;
-    const u = new SpeechSynthesisUtterance(texto);
+    const u = new SpeechSynthesisUtterance(limpio);
     u.rate = ajustes.velocidad;
     u.pitch = ajustes.tono; // tono JARVIS: ligeramente agudo y claro
     const v = obtenerVoz();
@@ -483,6 +494,67 @@ function comandoLocal(t) {
   return null;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// CLIMA · Open-Meteo (gratis, sin API key, CORS abierto)
+// Documentación: open-meteo.com/en/docs
+// ═══════════════════════════════════════════════════════════════
+const CODIGOS_CLIMA = {
+  0: "despejado", 1: "casi despejado", 2: "parcialmente nublado", 3: "nublado",
+  45: "con niebla", 48: "con escarcha y niebla",
+  51: "con llovizna ligera", 53: "con llovizna", 55: "con llovizna densa",
+  56: "con llovizna helada", 57: "con llovizna helada densa",
+  61: "con lluvia ligera", 63: "con lluvia", 65: "con lluvia intensa",
+  66: "con lluvia helada", 67: "con lluvia helada intensa",
+  71: "con nevada ligera", 73: "con nevada", 75: "con nevada intensa", 77: "con granos de nieve",
+  80: "con chubascos ligeros", 81: "con chubascos", 82: "con chubascos intensos",
+  85: "con chubascos de nieve", 86: "con chubascos de nieve intensos",
+  95: "con tormenta eléctrica", 96: "con tormenta y granizo", 99: "con tormenta y granizo intenso"
+};
+
+// Convierte un nombre de ciudad en coordenadas
+async function buscarCiudad(nombre) {
+  const url = "https://geocoding-api.open-meteo.com/v1/search?name=" +
+    encodeURIComponent(nombre) + "&count=1&language=es";
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  const j = await r.json();
+  if (!j.results || !j.results.length) return null;
+  const g = j.results[0];
+  return { lat: g.latitude, lon: g.longitude, nombre: g.name + (g.country ? ", " + g.country : "") };
+}
+
+// Temperatura y condiciones actuales de unas coordenadas
+async function climaDe(lat, lon, lugar) {
+  const url = "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon +
+    "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m&timezone=auto";
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  const j = await r.json();
+  const c = j.current || {};
+  const desc = CODIGOS_CLIMA[c.weather_code] || "cambiante";
+  return "En " + lugar + ": " + Math.round(c.temperature_2m) +
+    " grados " + desc + ", se sienten como " + Math.round(c.apparent_temperature || c.temperature_2m) +
+    ", humedad " + c.relative_humidity_2m + "%, viento " + Math.round(c.wind_speed_10m) + " kilómetros por hora.";
+}
+
+// "VIERNES, temperatura en Madrid" o "VIERNES, ¿qué clima hace?"
+async function comandoClima(texto) {
+  let geo = null;
+  const mCiudad = texto.match(/(?:en|de|para)\s+([a-záéíóúñü\s]+)/i);
+  if (mCiudad) {
+    const nombre = mCiudad[1].trim().replace(/^(la|el|los|las)\s+/i, "");
+    geo = await buscarCiudad(nombre);
+  }
+  if (!geo && navigator.geolocation) {
+    const pos = await new Promise((res, rej) =>
+      navigator.geolocation.getCurrentPosition(res, rej, { timeout: 8000, maximumAge: 300000 })
+    );
+    geo = { lat: pos.coords.latitude, lon: pos.coords.longitude, nombre: "tu ubicación" };
+  }
+  if (!geo) throw new Error("sin ubicación");
+  return await climaDe(geo.lat, geo.lon, geo.nombre);
+}
+
 // Rutas de conexión: tu proxy primero, luego directo y proxies públicos
 function rutasGroq() {
   const endpoint = "https://api.groq.com/openai/v1/chat/completions";
@@ -529,6 +601,21 @@ async function procesarComando(texto) {
   ocupado = true;
   agregarMensaje("user", null, texto);
 
+  // ── CLIMA en vivo (Open-Meteo: gratis y sin key) ──
+  if (/(temperatura|clima|tiempo hace|que tiempo|grados)/i.test(texto)) {
+    mostrarTyping();
+    try {
+      const textoClima = await comandoClima(texto);
+      ocultarTyping();
+      finalizarRespuesta(texto, "<b>🌡️ " + escapeHtml(textoClima) + "</b>", textoClima);
+    } catch (e) {
+      ocultarTyping();
+      finalizarRespuesta(texto, "<b>🌡️ No pude obtener el clima.</b>",
+        "No pude obtener el clima. Prueba a decir: temperatura en Madrid, o permite la ubicación.");
+    }
+    return;
+  }
+
   const local = comandoLocal(texto);
   let html, textoRespuesta;
 
@@ -562,6 +649,11 @@ async function procesarComando(texto) {
     ocultarTyping();
   }
 
+  finalizarRespuesta(texto, html, textoRespuesta);
+}
+
+// Cola de salida: muestra, memoriza y habla la respuesta
+function finalizarRespuesta(texto, html, textoRespuesta) {
   agregarMensaje("assistant", html, textoRespuesta);
   historial.push({ rol: "user", texto: texto });
   historial.push({ rol: "assistant", texto: textoRespuesta });
