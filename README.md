@@ -2,6 +2,8 @@
 
 Tu asistente que **siempre está escuchando**. Di la palabra mágica **"VIERNES"** seguido de tu duda, y te responde en voz alta. Cualquier tema: horas, fechas, preguntas, ideas, traducciones, cálculos…
 
+🌐 **En vivo (HTTPS):** <https://dansabio02.github.io/viernes-asistente/> — ahí el micrófono pide permiso **una sola vez** y la escucha no se interrumpe.
+
 ## ✨ Características
 
 - 🎤 **Modo siempre escuchando** — escucha continuamente (reinicio canónico en `onend` + keepalive cada 15 s) y solo se activa con la palabra mágica **"VIERNES"**
@@ -36,14 +38,14 @@ Reactor de arco con anillos giratorios, **ripples concéntricos**, **ticks de br
 ## 🚀 Cómo usarlo
 
 ### 1. API key de Groq
-Crea tu key en <https://console.groq.com/keys> y pégala en `config.js`:
+Crea tu key en <https://console.groq.com/keys> y pégala en **`config.local.js`** (archivo local):
 
 ```js
-// config.js
+// config.local.js — NO se sube a GitHub
 window.GROQ_API_KEY_OVERRIDE = "tu_key_aqui";
 ```
 
-> ⚠️ `config.js` está en `.gitignore`: **nunca se sube a GitHub**.
+> ⚠️ `config.local.js` está en `.gitignore`: **nunca se sube**. `config.js` es público y solo lleva la URL del proxy — si pusieras la key ahí, Groq la revocarías al instante (como pasó antes).
 
 ### 2. Servir la página
 El micrófono requiere **HTTPS** o **localhost**:
