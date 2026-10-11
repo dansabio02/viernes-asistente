@@ -1,0 +1,12 @@
+{
+  "name": "VIERNES · Asistente Personal",
+  "short_name": "VIERNES",
+  "description": "Tu asistente personal siempre escuchando. Di 'VIERNES' y pregunta lo que necesites.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#04070F",
+  "theme_color": "#00D4FF",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

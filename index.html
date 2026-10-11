@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#00D4FF">
+<title>VIERNES · Asistente Personal</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.webmanifest">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  * { -webkit-tap-highlight-color: transparent; }
+
+  :root {
+    --cyan: #00D4FF;
+    --cyan-soft: rgba(0,212,255,.35);
+    --cyan-faint: rgba(0,212,255,.08);
+    --bg: #04070F;
+  }
+
+  body {
+    font-family: 'Rajdhani', sans-serif;
+    color: #CFE9F5;
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(ellipse at 50% -10%, rgba(0,212,255,.12), transparent 55%),
+      linear-gradient(rgba(0,212,255,.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,.035) 1px, transparent 1px);
+    background-size: 100% 100%, 44px 44px, 44px 44px;
+    overscroll-behavior-y: contain;
+  }
+
+  .font-hud { font-family: 'Orbitron', sans-serif; }
+  .font-mono2 { font-family: 'Share Tech Mono', monospace; }
+
+  /* ═══ MARCO HUD ═══ */
+  .hud-esquina { position: fixed; width: 26px; height: 26px; z-index: 50; pointer-events: none; opacity: .55; }
+  .hud-tl { top: 8px; left: 8px; border-top: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
+  .hud-tr { top: 8px; right: 8px; border-top: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
+  .hud-bl { bottom: 8px; left: 8px; border-bottom: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
+  .hud-br { bottom: 8px; right: 8px; border-bottom: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
+  .scanlines {
+    position: fixed; inset: 0; z-index: 40; pointer-events: none; opacity: .5;
+    background: repeating-linear-gradient(0deg, rgba(0,212,255,.025) 0 1px, transparent 1px 3px);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,212,255,.3); border-radius: 2px; }
+
+  /* ═══ REACTOR DE ARCO (orbe) ═══ */
+  .orb-wrap { animation: flotar 6s ease-in-out infinite; }
+  @keyframes flotar { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+
+  .orb {
+    --glow: rgba(100,116,139,.4);
+    --glow-suave: rgba(100,116,139,.12);
+    width: 210px; height: 210px; position: relative; cursor: pointer; user-select: none;
+    transition: filter .4s;
+  }
+  .orb.detenido   { --glow: rgba(100,116,139,.4);  --glow-suave: rgba(100,116,139,.12); }
+  .orb.escuchando { --glow: rgba(0,212,255,.85);   --glow-suave: rgba(0,212,255,.2);  filter: drop-shadow(0 0 22px rgba(0,212,255,.45)); }
+  .orb.activado   { --glow: rgba(200,246,255,1);   --glow-suave: rgba(0,212,255,.35); filter: drop-shadow(0 0 42px rgba(0,212,255,.9)); }
+  .orb.hablando   { --glow: rgba(52,255,178,.85);  --glow-suave: rgba(52,255,178,.2); filter: drop-shadow(0 0 30px rgba(52,255,178,.6)); }
+
+  .ripple { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--glow); opacity: 0; animation: ripple 3.2s ease-out infinite; pointer-events: none; }
+  .ripple.r2 { animation-delay: 1.6s; }
+  .orb.detenido .ripple { animation-play-state: paused; }
+  @keyframes ripple { 0% { transform: scale(1); opacity: .45; } 100% { transform: scale(2); opacity: 0; } }
+
+  .ticks {
+    position: absolute; inset: -12px; border-radius: 50%; pointer-events: none;
+    background: repeating-conic-gradient(from 0deg, var(--glow) 0deg .8deg, transparent .8deg 6deg);
+    -webkit-mask: radial-gradient(circle, transparent 60%, black 61%, black 66%, transparent 67%);
+            mask: radial-gradient(circle, transparent 60%, black 61%, black 66%, transparent 67%);
+    animation: girar 45s linear infinite;
+  }
+
+  .anillo { position: absolute; border-radius: 50%; pointer-events: none; }
+  .a1 { inset: 0; border: 2px dashed var(--glow); animation: girar 18s linear infinite; }
+  .a2 { inset: 18px; border: 2px dotted var(--glow); animation: girar 12s linear infinite reverse; }
+  .a3 { inset: 36px; border: 3px double var(--glow); animation: girar 26s linear infinite; }
+
+  .barrido {
+    position: absolute; inset: 52px; border-radius: 50%; pointer-events: none;
+    background: conic-gradient(from 0deg, transparent 0deg, var(--glow) 35deg, transparent 70deg);
+    -webkit-mask: radial-gradient(circle, transparent 52%, black 53%);
+            mask: radial-gradient(circle, transparent 52%, black 53%);
+    animation: girar 4.5s linear infinite;
+  }
+  .orb.activado .barrido { animation-duration: 1.2s; }
+  .orb.activado .a1 { animation-duration: 3s; }
+  .orb.activado .a2 { animation-duration: 2.4s; }
+
+  .nucleo {
+    position: absolute; inset: 62px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle at 50% 38%, var(--glow-suave), rgba(0,0,0,.25) 75%);
+    border: 1px solid var(--glow);
+    box-shadow: inset 0 0 28px var(--glow-suave), 0 0 34px var(--glow-suave);
+    transition: all .4s;
+    overflow: hidden;
+  }
+  .brillo {
+    position: absolute; inset: -40%;
+    background: conic-gradient(from 0deg, transparent 0deg, rgba(255,255,255,.35) 20deg, transparent 45deg, transparent 180deg, rgba(255,255,255,.25) 200deg, transparent 225deg);
+    animation: girar 7s linear infinite;
+  }
+  .nucleo i { position: relative; z-index: 1; font-size: 42px; color: var(--glow); transition: color .4s; text-shadow: 0 0 14px var(--glow); }
+  .orb.hablando .nucleo { animation: latidoNucleo 1s infinite; }
+  @keyframes latidoNucleo { 0%,100% { box-shadow: inset 0 0 28px var(--glow-suave), 0 0 22px var(--glow-suave); } 50% { box-shadow: inset 0 0 42px var(--glow-suave), 0 0 50px var(--glow-suave); } }
+
+  @keyframes girar { to { transform: rotate(360deg); } }
+
+  /* ═══ PANEL HUD ═══ */
+  .panel {
+    background: rgba(6,14,26,.75);
+    border: 1px solid rgba(0,212,255,.22);
+    box-shadow: 0 0 24px rgba(0,212,255,.06), inset 0 0 40px rgba(0,212,255,.03);
+    backdrop-filter: blur(6px);
+    position: relative;
+  }
+  .panel::before, .panel::after {
+    content: ""; position: absolute; width: 14px; height: 14px; pointer-events: none;
+  }
+  .panel::before { top: -1px; left: -1px; border-top: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
+  .panel::after { bottom: -1px; right: -1px; border-bottom: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
+
+  .label-hud {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px; letter-spacing: .25em; text-transform: uppercase;
+    color: rgba(0,212,255,.75);
+  }
+
+  .msg-user {
+    background: linear-gradient(135deg, rgba(0,212,255,.16), rgba(0,212,255,.06));
+    border: 1px solid rgba(0,212,255,.4);
+    color: #E6F7FF;
+  }
+  .msg-ia {
+    background: rgba(8,18,32,.85);
+    border: 1px solid rgba(0,212,255,.25);
+  }
+
+  .chip {
+    font-family: 'Share Tech Mono', monospace; font-size: 11px;
+    padding: 6px 12px; border-radius: 2px;
+    border: 1px solid rgba(0,212,255,.35); color: #9BDFFF;
+    background: rgba(0,212,255,.05); transition: all .15s;
+  }
+  .chip:hover { background: rgba(0,212,255,.15); color: #fff; box-shadow: 0 0 12px rgba(0,212,255,.3); }
+  .chip:active { transform: scale(.95); }
+
+  .btn-hud {
+    font-family: 'Orbitron', sans-serif; font-size: 10px; letter-spacing: .15em;
+    padding: 8px 10px; border-radius: 2px;
+    border: 1px solid rgba(0,212,255,.4); color: #BDEFFF;
+    background: rgba(0,212,255,.07); transition: all .15s;
+  }
+  .btn-hud:hover { background: rgba(0,212,255,.18); color: #fff; box-shadow: 0 0 14px rgba(0,212,255,.35); }
+  .btn-hud:active { transform: scale(.95); }
+
+  input, select {
+    background: rgba(4,10,20,.8) !important;
+    border: 1px solid rgba(0,212,255,.3) !important;
+    color: #DFF4FF !important;
+    font-family: 'Rajdhani', sans-serif !important;
+  }
+  input:focus, select:focus {
+    outline: none; border-color: var(--cyan) !important;
+    box-shadow: 0 0 14px rgba(0,212,255,.35) !important;
+  }
+  input[type=range] { accent-color: var(--cyan); }
+
+  .cursor-parpadea::after { content: "▌"; animation: parpadeo 1s steps(1) infinite; color: var(--cyan); }
+  @keyframes parpadeo { 50% { opacity: 0; } }
+
+  @keyframes aparecer { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .mensaje { animation: aparecer .3s ease-out; }
+
+  .typing-dots span { display: inline-block; width: 5px; height: 5px; margin: 0 2px; background: var(--cyan); border-radius: 50%; animation: rebote 1.2s infinite ease-in-out; }
+  .typing-dots span:nth-child(1){ animation-delay: -.32s; } .typing-dots span:nth-child(2){ animation-delay: -.16s; }
+  @keyframes rebote { 0%,80%,100%{ transform: scale(0); } 40%{ transform: scale(1); } }
+
+  @keyframes latido { 0%,100%{ transform: scale(1);} 50%{ transform: scale(1.05);} }
+  .latido { animation: latido 1.4s infinite; }
+
+  @media (max-width: 640px) {
+    .orb { width: 165px; height: 165px; }
+    .nucleo { inset: 48px; } .nucleo i { font-size: 34px; }
+    .barrido { inset: 42px; } .ticks { inset: -8px; }
+  }
+</style>
+<script src="config.js"></script>
+</head>
+<body class="min-h-screen flex flex-col">
+
+<!-- MARCO HUD -->
+<div class="hud-esquina hud-tl"></div><div class="hud-esquina hud-tr"></div>
+<div class="hud-esquina hud-bl"></div><div class="hud-esquina hud-br"></div>
+<div class="scanlines"></div>
+
+<!-- ═══ HEADER ═══ -->
+<header class="sticky top-0 z-40 border-b" style="background: rgba(4,7,15,.9); border-color: rgba(0,212,255,.25); backdrop-filter: blur(8px);">
+  <div class="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <img src="icon.svg" alt="VIERNES" class="w-9 h-9" style="filter: drop-shadow(0 0 8px rgba(0,212,255,.6));">
+      <div>
+        <div class="font-hud font-bold tracking-[.3em] text-white text-sm" style="text-shadow: 0 0 12px rgba(0,212,255,.8);">VIERNES</div>
+        <div class="label-hud">Asistente personal · protocolo J.A.R.V.I.S.</div>
+      </div>
+    </div>
+    <div id="statusPill" class="panel flex items-center gap-2 px-3 py-1.5 rounded-sm">
+      <span id="statusDot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+      <span id="statusLabel" class="font-mono2 text-[11px] tracking-widest text-cyan-200">SISTEMA DETENIDO</span>
+    </div>
+  </div>
+</header>
+
+<main class="flex-grow w-full max-w-3xl mx-auto px-4 py-6 flex flex-col items-center gap-5">
+
+  <!-- ═══ REACTOR ═══ -->
+  <div class="flex flex-col items-center gap-4 pt-4">
+    <div class="orb-wrap">
+      <div id="orb" class="orb detenido" onclick="toggleEscucha()" title="Activar / desactivar modo siempre escuchando">
+        <div class="ripple"></div>
+        <div class="ripple r2"></div>
+        <div class="ticks"></div>
+        <div class="anillo a1"></div>
+        <div class="anillo a2"></div>
+        <div class="anillo a3"></div>
+        <div class="barrido"></div>
+        <div class="nucleo">
+          <div class="brillo"></div>
+          <i id="orbIcono" class="fa-solid fa-microphone-slash"></i>
+        </div>
+      </div>
+    </div>
+    <div class="text-center">
+      <div id="estadoTexto" class="font-hud text-sm tracking-widest text-cyan-100">TOCA EL REACTOR PARA ACTIVAR</div>
+      <div id="estadoSub" class="label-hud mt-1">PALABRA MÁGICA: <b class="text-cyan-300">"VIERNES"</b></div>
+    </div>
+  </div>
+
+  <!-- ═══ TRANSCRIPCIÓN EN VIVO ═══ -->
+  <div id="liveBox" class="hidden w-full panel p-4 rounded-sm">
+    <div class="label-hud mb-1.5 flex items-center gap-2">
+      <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span> Audio entrante
+    </div>
+    <div id="liveTexto" class="font-mono2 text-sm text-cyan-100 italic min-h-[1.2em]">…</div>
+  </div>
+
+  <!-- ═══ CHAT ═══ -->
+  <div id="chatMessages" class="custom-scrollbar w-full flex-grow overflow-y-auto space-y-3 py-2" style="max-height: 42vh;"></div>
+
+  <!-- ═══ CHIPS RÁPIDOS ═══ -->
+  <div class="flex flex-wrap justify-center gap-2">
+    <button onclick="enviarTexto('VIERNES, ¿qué hora es?')" class="chip">🕐 ¿QUÉ HORA ES?</button>
+    <button onclick="enviarTexto('VIERNES, ¿qué fecha es hoy?')" class="chip">📅 ¿QUÉ FECHA ES?</button>
+    <button onclick="enviarTexto('VIERNES, cuéntame un dato curioso')" class="chip">💡 DATO CURIOSO</button>
+    <button onclick="enviarTexto('VIERNES, ¿qué puedes hacer?')" class="chip">🤖 CAPACIDADES</button>
+  </div>
+
+  <!-- ═══ INPUT ═══ -->
+  <form onsubmit="enviarForm(event)" class="w-full flex items-center gap-2 pb-2">
+    <button type="button" onclick="hablarAhora()" id="btnPush" title="Hablar ahora (push-to-talk)"
+      class="shrink-0 p-3.5 rounded-sm text-white transition-all active:scale-95"
+      style="background: rgba(0,212,255,.12); border: 1px solid rgba(0,212,255,.5);">
+      <i class="fa-solid fa-microphone text-cyan-300"></i>
+    </button>
+    <input id="chatInput" type="text" placeholder="O escribe tu duda aquí…" autocomplete="off"
+      class="flex-grow min-w-0 px-4 py-3 rounded-sm text-sm transition-all">
+    <button type="submit" title="Enviar"
+      class="shrink-0 p-3.5 rounded-sm text-white transition-all active:scale-95"
+      style="background: rgba(0,212,255,.12); border: 1px solid rgba(0,212,255,.5);">
+      <i class="fa-solid fa-arrow-up text-cyan-300"></i>
+    </button>
+  </form>
+
+  <!-- ═══ AJUSTES ═══ -->
+  <details class="w-full panel rounded-sm text-xs">
+    <summary class="px-4 py-2.5 cursor-pointer font-hud text-[11px] tracking-widest text-cyan-200 select-none"><i class="fa-solid fa-gear mr-2"></i>AJUSTES DEL SISTEMA</summary>
+    <div class="px-4 pb-4 pt-2 space-y-4">
+      <label class="flex items-center justify-between gap-3">
+        <span class="label-hud">🔊 Respuestas en voz</span>
+        <input type="checkbox" id="ajVoz" onchange="guardarAjustes()" checked class="w-4 h-4">
+      </label>
+      <label class="flex items-center justify-between gap-3">
+        <span class="label-hud">🎙️ Voz</span>
+        <select id="ajVozSel" onchange="guardarAjustes()" class="px-2 py-1 rounded-sm text-xs w-52"></select>
+      </label>
+      <label class="flex items-center justify-between gap-3">
+        <span class="label-hud">⏩ Velocidad</span>
+        <input type="range" id="ajVel" min="0.7" max="1.6" step="0.1" value="1" onchange="guardarAjustes()" class="w-32">
+      </label>
+      <label class="flex items-center justify-between gap-3">
+        <span class="label-hud">📈 Tono (estilo JARVIS)</span>
+        <input type="range" id="ajTono" min="0.6" max="1.8" step="0.05" value="1.1" onchange="guardarAjustes()" class="w-32">
+      </label>
+      <label class="flex items-center justify-between gap-3">
+        <span class="label-hud">🌎 Idioma de escucha</span>
+        <select id="ajLang" onchange="guardarAjustes(true)" class="px-2 py-1 rounded-sm text-xs">
+          <option value="es-MX">Español (México)</option>
+          <option value="es-ES">Español (España)</option>
+          <option value="es-US">Español (EE.UU.)</option>
+        </select>
+      </label>
+      <div class="flex gap-2 pt-1">
+        <button onclick="diagnosticar()" class="btn-hud flex-1"><i class="fa-solid fa-stethoscope mr-1"></i>PROBAR CONEXIÓN</button>
+        <button onclick="hablar('Hola, soy VIERNES. Tu asistente personal, a tus órdenes.')" class="btn-hud flex-1"><i class="fa-solid fa-volume-high mr-1"></i>PROBAR VOZ</button>
+      </div>
+      <div class="pt-1">
+        <button onclick="limpiarHistorial()" class="btn-hud w-full"><i class="fa-solid fa-trash mr-1"></i>BORRAR HISTORIAL</button>
+      </div>
+      <div class="pt-1">
+        <button onclick="forzarActualizacion()" class="btn-hud w-full" title="Descarta la caché y recarga"><i class="fa-solid fa-arrows-rotate mr-1"></i>FORZAR ACTUALIZACIÓN</button>
+      </div>
+    </div>
+  </details>
+
+  <p class="font-mono2 text-[10px] text-slate-500 text-center pb-6 leading-relaxed">
+    ⚠️ EL MICRÓFONO REQUIERE <b class="text-cyan-400">HTTPS</b> (O LOCALHOST) · CHROME / EDGE<br>
+    MANTÉN ESTA PESTAÑA ABIERTA PARA ESCUCHA CONTINUA
+  </p>
+</main>
+
+<script src="viernes.js?v=3"></script>
+<script>
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>
