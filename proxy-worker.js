@@ -1,22 +1,25 @@
-// Cloudflare Worker — proxy gratis para Groq (la key queda en el servidor, no en el navegador)
+// Cloudflare Worker — proxy para Groq (la key queda en el servidor, no en el navegador)
 //
 // CÓMO DESPLEGAR (5 minutos, gratis):
-// 1. Crea cuenta en https://dash.cloudflare.com (puedes usar tu correo de Google)
-// 2. Ve a "Workers & Pages" → "Create" → "Create Worker"
-// 3. Pega este código en el editor, y en la sección "Variables" agrega:
-//      GROQ_API_KEY = tu_key_de_groq   (tipo Secret)
-//      VIERNES_ORIGIN = tu dominio (ej. https://tusitio.github.io) o http://localhost:8000
-// 4. "Deploy" → copia la URL (https://viernes-proxy.tu-usuario.workers.dev)
-// 5. En config.js descomenta:
-//      window.VIERNES_PROXY_URL = "https://viernes-proxy.tu-usuario.workers.dev";
+// 1. dash.cloudflare.com → Workers & Pages → Create → Create Worker
+// 2. Nómbralo "viernes-proxy"
+// 3. Edit code (</>) → borra el código de ejemplo y pega ESTE archivo completo
+// 4. Save and Deploy
+// 5. Settings → Variables → Add variable:
+//      GROQ_API_KEY = tu_key_de_groq   (Type: Secret)
+//    (Opcional) Para restringir orígenes, agrega también:
+//      VIERNES_ORIGIN = https://tusitio (Type: Text)
+//    Si VIERNES_ORIGIN no existe, se permite cualquier origen.
+// 6. Si aparece "unpublished changes" → Deploy otra vez.
 
 export default {
   async fetch(request) {
     const origin = request.headers.get("Origin") || "";
     const permitido = (request.env && request.env.VIERNES_ORIGIN) || "";
-
-    // CORS: permitir solo tu dominio (o localhost para pruebas)
+    // Sin VIERNES_ORIGIN configurado, se permite cualquier origen
+    // (asistente personal; la clave nunca sale del servidor).
     const ok =
+      !permitido ||
       permitido.split(",").some((d) => d.trim() && origin.includes(d.trim())) ||
       origin.includes("localhost") ||
       origin.includes("127.0.0.1");
