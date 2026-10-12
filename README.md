@@ -13,6 +13,7 @@ Tu asistente que **siempre está escuchando**. Di la palabra mágica **"VIERNES"
 - 🧮 **Cálculos**: "VIERNES, ¿cuánto es 12 por 8?"
 - 🎩 **Trato de jefe**: cada respuesta te dice "jefe"
 - 🔊 **Responde en voz** (texto a voz en español, sin leer emojis) o por texto
+- 🌐 **Voz natural de Google** (por defecto): suena humana, gratis y sin key
 - 🎙️ **Voz a la carta**: selector de voz + **tono estilo JARVIS** en Ajustes
 - 🎨 **Interfaz J.A.R.V.I.S.**: reactor de arco giratorio, HUD cian, tipografía Orbitron
 - 🧠 **Cerebro IA** vía Groq (`gpt-oss-120b` con fallback) + tu propio proxy (Cloudflare Worker)
@@ -23,7 +24,7 @@ Tu asistente que **siempre está escuchando**. Di la palabra mágica **"VIERNES"
 
 ## 🎙️ Personalizar la voz (estilo JARVIS)
 
-En **Ajustes**:
+Por defecto VIERNES usa **voz natural de Google** (llega por tu Worker, gratis). Para usar las voces de tu sistema, en **Ajustes** desactiva *🌐 Voz natural (Google)* y:
 - **Voz**: elige cualquier voz en español instalada en tu sistema (Chrome/Edge traen Microsoft/Google). Para un tono más "JARVIS", prueba *Microsoft Jorge* (es-ES) o sube el **tono a 1.2–1.3**
 - **Tono**: de 0.6 (grave) a 1.8 (agudo). El default 1.1 suena claro y sintético
 - **Velocidad**: 0.7 (lento) a 1.6 (rápido)
@@ -36,7 +37,7 @@ Reactor de arco con anillos giratorios, **ripples concéntricos**, **ticks de br
 
 ## ⚡ Respuestas rápidas
 
-- Modelo rápido primero (`gpt-oss-20b`), respuestas más cortas (450 tokens), historial reducido a 6 mensajes
+- Modelo rápido primero (`gpt-oss-20b`), respuestas concisas (800 tokens), historial reducido a 6 mensajes
 - Comandos locales instantáneos (hora, fecha, saludos) sin llamar a la IA
 - Captura de voz de 4.5s tras la palabra mágica
 

@@ -279,11 +279,13 @@ function partirTexto(texto, max) {
   return partes;
 }
 
+let ctxVoz = null; // un solo AudioContext para toda la sesión
 async function hablarNatural(texto) {
   const base = (window.VIERNES_PROXY_URL || "").replace(/\/$/, "");
   if (!base || !window.AudioContext) return false;
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
   try {
+    if (!ctxVoz) ctxVoz = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = ctxVoz;
     if (ctx.state === "suspended") await ctx.resume();
     for (const frag of partirTexto(texto, 180)) {
       const control = new AbortController();
@@ -300,8 +302,6 @@ async function hablarNatural(texto) {
     return true;
   } catch (e) {
     return false; // sin voz natural: vuelve a la voz local
-  } finally {
-    ctx.close().catch(() => {});
   }
 }
 
