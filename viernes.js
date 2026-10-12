@@ -26,7 +26,7 @@ let timeoutCaptura = null;
 let ocupado = false;
 let estado = ESTADOS.DETENIDO;
 let ultimaRespuesta = 0; // enfriamiento: evita que se active con su propia voz
-let streamMic = null; // stream persistente: mantiene el permiso caliente
+let streamMic = null; // true = permiso de micrófono ya calentado
 
 let historial = [];
 try { historial = JSON.parse(localStorage.getItem("viernes_historial") || "[]"); } catch (e) { historial = []; }
@@ -249,12 +249,15 @@ async function estadoPermiso() {
   } catch (e) { return "unknown"; }
 }
 
-// Mantiene un stream de micrófono abierto para que el permiso
-// quede "concedido" y Chrome deje de pedirlo en cada inicio.
+// Pide el micrófono para calentar el permiso, pero lo SUELTA
+// al instante: un stream abierto puede hacer que el
+// reconocedor de Chrome no reciba audio (escucha muda).
 async function asegurarMicrofono() {
   if (streamMic) return true;
   try {
-    streamMic = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((t) => t.stop());
+    streamMic = true; // permiso caliente (sin ocupar el micrófono)
     return true;
   } catch (e) {
     streamMic = null;
@@ -338,8 +341,12 @@ function crearReconocimiento() {
       modoEscucha = false;
       setEstado(ESTADOS.DETENIDO);
       mostrarError("No encontré ningún micrófono conectado.");
+    } else if (e.error === "network") {
+      mostrarLive("⚠️ El servicio de voz de Chrome no responde — revisa tu internet");
+    } else if (e.error !== "no-speech" && e.error !== "aborted") {
+      mostrarLive("⚠️ error de voz: " + e.error);
     }
-    // "network" y "no-speech" son normales: onend reinicia solo
+    // "no-speech" y "aborted" son normales: onend reinicia solo
   };
 }
 
@@ -681,7 +688,7 @@ async function diagnosticar() {
   const permisoMic = await estadoPermiso();
   filas.push(`<div class="flex justify-between gap-2 py-0.5"><span>Protocolo</span><b>${location.protocol === "file:" ? "❌ file:// (NO guarda permiso)" : "✅ " + location.protocol}</b></div>`);
   filas.push(`<div class="flex justify-between gap-2 py-0.5"><span>Permiso micrófono</span><b>${permisoMic === "granted" ? "✅ concedido" : permisoMic === "denied" ? "❌ bloqueado" : "⚠️ " + permisoMic}</b></div>`);
-  filas.push(`<div class="flex justify-between gap-2 py-0.5"><span>Stream persistente</span><b>${streamMic ? "✅ activo" : "— (toca el reactor)"}</b></div>`);
+  filas.push(`<div class="flex justify-between gap-2 py-0.5"><span>Permiso caliente</span><b>${streamMic ? "✅ sí" : "— (toca el reactor)"}</b></div>`);
   const nVoces = window.speechSynthesis ? speechSynthesis.getVoices().length : 0;
   filas.push(`<div class="flex justify-between gap-2 py-0.5"><span>Voces TTS</span><b>${nVoces > 0 ? "✅ " + nVoces + " voces" : "⚠️ cargando…"}</b></div>`);
   filas.push(`<div class="flex justify-between gap-2 py-0.5"><span>Voz activada</span><b>${ajustes.voz ? "✅ sí" : "❌ NO (Ajustes → Respuestas en voz)"}</b></div>`);
