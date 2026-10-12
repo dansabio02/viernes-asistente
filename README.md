@@ -100,7 +100,7 @@ Otras causas:
 4. Ve a `chrome://settings/content/microphone` y asegúrate de que el sitio esté en **Permitir**, no en "Preguntar cada vez"
 5. Toca *AJUSTES → 🔧 Probar conexión* para ver el protocolo y el estado del permiso
 
-**Protecciones del código** (patrón canónico de Artyom.js / MDN): **una sola instancia** de reconocimiento con `continuous: true`, **reinicio inmediato en `onend`** (sin retardos ni throttles: un reinicio diferido es lo que rompe la escucha constante), stream de micrófono persistente, pausa mientras VIERNES habla y un **keepalive** cada 15 s (Chrome a veces corta la sesión sin avisar; el stop forzado la reanuda al instante).
+**Protecciones del código** (patrón canónico de Artyom.js / MDN): **una sola instancia** de reconocimiento con `continuous: true`, **reinicio inmediato en `onend`** (sin retardos ni throttles: un reinicio diferido es lo que rompe la escucha constante), permiso calentado sin ocupar el micrófono (un stream abierto puede dejar al reconocedor mudo), pausa mientras VIERNES habla y un **keepalive** cada 15 s (Chrome a veces corta la sesión sin avisar; el stop forzado la reanuda al instante).
 
 ### La solución estable: tu propio proxy (gratis, 5 min)
 
