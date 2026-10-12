@@ -31,7 +31,7 @@ let streamMic = null; // true = permiso de micrófono ya calentado
 let historial = [];
 try { historial = JSON.parse(localStorage.getItem("viernes_historial") || "[]"); } catch (e) { historial = []; }
 
-let ajustes = { voz: true, velocidad: 1.0, tono: 1.1, vozNombre: "", lang: "es-MX" };
+let ajustes = { voz: true, vozNatural: true, velocidad: 1.0, tono: 1.1, vozNombre: "", lang: "es-MX" };
 try { Object.assign(ajustes, JSON.parse(localStorage.getItem("viernes_ajustes") || "{}")); } catch (e) {}
 
 const SYSTEM_PROMPT =
@@ -195,7 +195,7 @@ function obtenerVoz() {
 }
 
 function hablar(texto) {
-  if (!ajustes.voz || !texto || !window.speechSynthesis) return;
+  if (!ajustes.voz || !texto) return;
   // La voz NO sabe pronunciar emojis ni símbolos: solo letras,
   // números y puntuación (todo lo demás se borra antes de hablar)
   const limpio = texto
@@ -208,7 +208,29 @@ function hablar(texto) {
   // escucha mientras VIERNES habla (evita que se escuche a sí mismo)
   setEstado(ESTADOS.HABLANDO);
   if (recognition) { try { recognition.stop(); } catch (e) {} }
-  if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+  if (window.speechSynthesis && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
+  // Voz natural (Google, vía Worker) si está activada
+  if (ajustes.vozNatural && window.VIERNES_PROXY_URL) {
+    hablarNatural(limpio).then((ok) => { if (!ok) hablarConVozLocal(limpio); });
+    return;
+  }
+  hablarConVozLocal(limpio);
+}
+
+// Reanuda la escucha al terminar de hablar
+function reanudarEscucha() {
+  ultimaRespuesta = Date.now(); // enfriamiento: ignora el eco de su propia voz
+  if (modoEscucha) {
+    setEstado(ESTADOS.ESCUCHANDO);
+    try { recognition.start(); } catch (e) {}
+  } else {
+    setEstado(ESTADOS.DETENIDO);
+  }
+}
+
+// Voz local del sistema (speechSynthesis) — tono JARVIS
+function hablarConVozLocal(limpio) {
+  if (!window.speechSynthesis) { reanudarEscucha(); return; }
   // Chrome descarta speak() justo después de cancel(): resume + diferir
   speechSynthesis.resume();
   setTimeout(() => {
@@ -223,13 +245,7 @@ function hablar(texto) {
       if (hecho) return;
       hecho = true;
       clearTimeout(seguro);
-      ultimaRespuesta = Date.now(); // enfriamiento: ignora el eco de su propia voz
-      if (modoEscucha) {
-        setEstado(ESTADOS.ESCUCHANDO);
-        try { recognition.start(); } catch (e) {}
-      } else {
-        setEstado(ESTADOS.DETENIDO);
-      }
+      reanudarEscucha();
     };
     const seguro = setTimeout(reanudar, 20000); // nunca quedarse atascado
     u.onstart = () => setEstado(ESTADOS.HABLANDO);
@@ -237,6 +253,49 @@ function hablar(texto) {
     u.onerror = reanudar;
     speechSynthesis.speak(u);
   }, 30);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VOZ NATURAL · Google TTS vía el Worker (MP3 → AudioContext)
+// Suena humana, gratis y sin API key
+// ═══════════════════════════════════════════════════════════════
+function partirTexto(texto, max) {
+  const partes = [];
+  let resto = texto;
+  while (resto.length > max) {
+    let corte = resto.lastIndexOf(" ", max);
+    if (corte < max * 0.5) corte = max; // corte forzado si no hay espacio
+    partes.push(resto.slice(0, corte));
+    resto = resto.slice(corte).trim();
+  }
+  if (resto) partes.push(resto);
+  return partes;
+}
+
+async function hablarNatural(texto) {
+  const base = (window.VIERNES_PROXY_URL || "").replace(/\/$/, "");
+  if (!base || !window.AudioContext) return false;
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  try {
+    if (ctx.state === "suspended") await ctx.resume();
+    for (const frag of partirTexto(texto, 180)) {
+      const control = new AbortController();
+      const seguro = setTimeout(() => control.abort(), 10000);
+      const r = await fetch(base + "/tts?texto=" + encodeURIComponent(frag), { signal: control.signal });
+      clearTimeout(seguro);
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const audio = await ctx.decodeAudioData(await r.arrayBuffer());
+      const fuente = ctx.createBufferSource();
+      fuente.buffer = audio;
+      fuente.connect(ctx.destination);
+      await new Promise((res) => { fuente.onended = res; fuente.start(); });
+    }
+    return true;
+  } catch (e) {
+    return false; // sin voz natural: vuelve a la voz local
+  } finally {
+    ctx.close().catch(() => {});
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -841,6 +900,7 @@ function enviarTexto(t) { procesarComando(t); }
 // ═══════════════════════════════════════════════════════════════
 function guardarAjustes(reiniciar) {
   ajustes.voz = $("ajVoz").checked;
+  ajustes.vozNatural = $("ajVozNat").checked;
   ajustes.velocidad = parseFloat($("ajVel").value);
   ajustes.tono = parseFloat($("ajTono").value);
   ajustes.vozNombre = $("ajVozSel").value;
@@ -856,6 +916,7 @@ function guardarAjustes(reiniciar) {
 
 function aplicarAjustes() {
   $("ajVoz").checked = ajustes.voz;
+  $("ajVozNat").checked = ajustes.vozNatural !== false;
   $("ajVel").value = ajustes.velocidad;
   $("ajTono").value = ajustes.tono;
   $("ajLang").value = ajustes.lang;
