@@ -211,7 +211,14 @@ function hablar(texto) {
   if (window.speechSynthesis && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
   // Voz natural (Google, vía Worker) si está activada
   if (ajustes.vozNatural && window.VIERNES_PROXY_URL) {
-    hablarNatural(limpio).then((ok) => { if (!ok) hablarConVozLocal(limpio); });
+    hablarNatural(limpio)
+      .then((ok) => {
+        if (ok) reanudarEscucha(); // ¡reanudar la escucha al terminar!
+        else hablarConVozLocal(limpio);
+      })
+      .catch(() => hablarConVozLocal(limpio));
+    // seguridad: si la voz natural falla en silencio, nunca quedarse mudo
+    setTimeout(() => { if (estado === ESTADOS.HABLANDO) reanudarEscucha(); }, 30000);
     return;
   }
   hablarConVozLocal(limpio);
