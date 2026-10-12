@@ -719,7 +719,7 @@ async function pedirGroq(mensajes) {
         const r = await fetch(ruta.url, {
           method: "POST",
           headers: { "Authorization": "Bearer " + GROQ_API_KEY, "Content-Type": "application/json" },
-          body: JSON.stringify({ model: modelo, messages: mensajes, temperature: 0.4, max_tokens: 450 })
+          body: JSON.stringify({ model: modelo, messages: mensajes, temperature: 0.4, max_tokens: 800 })
         });
         if (!r.ok) {
           const detalle = (await r.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 90);
