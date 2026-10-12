@@ -37,6 +37,7 @@ try { Object.assign(ajustes, JSON.parse(localStorage.getItem("viernes_ajustes") 
 const SYSTEM_PROMPT =
   "Eres VIERNES, el asistente personal de Daniel. " +
   "Rol: asistente inteligente, amigable y directo. Responde siempre en español de México, máximo 4 líneas. " +
+  "Trata a Daniel como tu jefe: usa la palabra 'jefe' en cada respuesta (ejemplo: 'Sí, jefe: son las 3'). " +
   "Antes de responder, analiza la pregunta: si requiere cálculo, lógica o comparación, razona brevemente paso a paso. " +
   "Ve directo al grano: no repitas la pregunta ni hagas introducciones vacías. " +
   "Si no sabes algo, dilo con honestidad en lugar de inventar. " +
@@ -289,7 +290,7 @@ async function toggleEscucha() {
       return;
     }
     iniciarEscucha();
-    if (historial.length === 0) hablar("Modo siempre escuchando activado. Di: VIERNES, y luego tu pregunta.");
+    if (historial.length === 0) hablar("Jefe: modo siempre escuchando activado. Di: VIERNES, y luego tu pregunta.");
   }
 }
 
@@ -477,26 +478,26 @@ function comandoLocal(t) {
   if (!n) return null;
 
   if (/^(hola|buenas|buenos dias|buenas tardes|buenas noches|hey|ey|que tal|buen dia)$/.test(n))
-    return { html: "<b>¡Hola! 👋</b> Soy VIERNES, tu asistente personal. Pregúntame lo que necesites: horas, fechas, dudas, ideas… lo que sea.",
-             texto: "Hola. Soy VIERNES, tu asistente personal. Pregúntame lo que necesites." };
+    return { html: "<b>¡Hola, jefe! 👋</b> Soy VIERNES, tu asistente personal. Pregúntame lo que necesites: horas, fechas, clima, notas, cálculos…",
+             texto: "Hola, jefe. Soy VIERNES, tu asistente personal. Pregúntame lo que necesites." };
 
   if (/que hora (es|son)/.test(n)) {
     const h = new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
-    return { html: `<b>🕐 Son las ${h}.</b>`, texto: `Son las ${h}.` };
+    return { html: `<b>🕐 Jefe: son las ${h}.</b>`, texto: `Jefe: son las ${h}.` };
   }
   if (/que fecha|que dia es hoy|dia de hoy/.test(n)) {
     const f = new Date().toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long" });
-    return { html: `<b>📅 Hoy es ${f}.</b>`, texto: `Hoy es ${f}.` };
+    return { html: `<b>📅 Jefe: hoy es ${f}.</b>`, texto: `Jefe: hoy es ${f}.` };
   }
   if (/como te llamas|tu nombre|quien eres/.test(n))
-    return { html: "<b>Soy VIERNES</b> 🤖 Tu asistente personal, siempre listo para ayudarte.",
-             texto: "Soy VIERNES, tu asistente personal, siempre listo para ayudarte." };
+    return { html: "<b>Soy VIERNES</b> 🤖 Tu asistente personal, jefe, siempre listo para ayudarte.",
+             texto: "Soy VIERNES, tu asistente personal, jefe, siempre listo para ayudarte." };
   if (/gracias/.test(n))
-    return { html: "<b>¡De nada! 😊</b> Aquí estoy para lo que necesites.",
-             texto: "De nada. Aquí estoy para lo que necesites." };
+    return { html: "<b>¡De nada, jefe! 😊</b> Aquí estoy para lo que necesites.",
+             texto: "De nada, jefe. Aquí estoy para lo que necesites." };
   if (/callate|silencio|deja de hablar|para de hablar/.test(n)) {
     if (window.speechSynthesis) speechSynthesis.cancel();
-    return { html: "<b>🔇 Listo, en silencio.</b>", texto: "" };
+    return { html: "<b>🔇 Listo, jefe: en silencio.</b>", texto: "" };
   }
   return null;
 }
@@ -539,7 +540,7 @@ async function climaDe(lat, lon, lugar) {
   const j = await r.json();
   const c = j.current || {};
   const desc = CODIGOS_CLIMA[c.weather_code] || "cambiante";
-  return "En " + lugar + ": " + Math.round(c.temperature_2m) +
+  return "Jefe: en " + lugar + ": " + Math.round(c.temperature_2m) +
     " grados " + desc + ", se sienten como " + Math.round(c.apparent_temperature || c.temperature_2m) +
     ", humedad " + c.relative_humidity_2m + "%, viento " + Math.round(c.wind_speed_10m) + " kilómetros por hora.";
 }
@@ -560,6 +561,74 @@ async function comandoClima(texto) {
   }
   if (!geo) throw new Error("sin ubicación");
   return await climaDe(geo.lat, geo.lon, geo.nombre);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TEMPORIZADORES · "VIERNES, recuérdame en 5 minutos"
+// ═══════════════════════════════════════════════════════════════
+function comandoTemporizador(texto) {
+  const m = texto.match(/(\d+)\s*(segundos?|minutos?|horas?)/i);
+  if (!m) return null;
+  const cantidad = parseInt(m[1], 10);
+  const unidad = m[2].toLowerCase();
+  const ms = unidad.startsWith("seg") ? cantidad * 1000
+    : unidad.startsWith("min") ? cantidad * 60000
+    : cantidad * 3600000;
+  const aviso = "Jefe: tu temporizador de " + cantidad + " " + unidad + " terminó.";
+  setTimeout(() => {
+    beep(880, 0.25);
+    setTimeout(() => beep(1174, 0.35), 250);
+    hablar(aviso);
+  }, ms);
+  const t = "Sí, jefe: temporizador de " + cantidad + " " + unidad + " activado.";
+  return { html: "<b>⏱️ " + escapeHtml(t) + "</b>", texto: t };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NOTAS · "VIERNES, guarda nota comprar leche" / "mis notas"
+// ═══════════════════════════════════════════════════════════════
+function comandoNotas(texto) {
+  const n = normalizar(texto);
+  if (/^(mis notas|leer notas|que notas|notas)$/.test(n)) {
+    let notas = [];
+    try { notas = JSON.parse(localStorage.getItem("viernes_notas") || "[]"); } catch (e) {}
+    if (!notas.length) return { html: "<b>📝 Jefe, no tienes notas.</b>", texto: "Jefe, no tienes notas." };
+    const lista = notas.map((x, i) => (i + 1) + ". " + x).join("; ");
+    const t = "Jefe: tienes " + notas.length + " notas. " + lista;
+    return { html: "<b>📝 " + escapeHtml(t) + "</b>", texto: t };
+  }
+  const m = texto.match(/(?:guarda|apunta|anota|nota:?)\s+(.+)/i);
+  if (m) {
+    const contenido = m[1].trim().replace(/^nota\s+/i, "");
+    let notas = [];
+    try { notas = JSON.parse(localStorage.getItem("viernes_notas") || "[]"); } catch (e) {}
+    notas.push(contenido);
+    try { localStorage.setItem("viernes_notas", JSON.stringify(notas.slice(-50))); } catch (e) {}
+    const t = "Sí, jefe: nota guardada.";
+    return { html: "<b>📝 " + escapeHtml(t) + "</b> <i>(" + escapeHtml(contenido) + ")</i>", texto: t };
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MATEMÁTICAS · "VIERNES, ¿cuánto es 12 por 8?"
+// ═══════════════════════════════════════════════════════════════
+function comandoMatematicas(texto) {
+  const m = texto.match(/cu[áa]nto es|calcula|multiplica|suma|resta|divide/i);
+  if (!m) return null;
+  const expr = (texto.slice(m.index + m[0].length) || "")
+    .replace(/mas/gi, "+").replace(/menos/gi, "-")
+    .replace(/por/gi, "*").replace(/entre/gi, "/")
+    .replace(/\by\b/gi, "+")
+    .replace(/[^0-9+\-*/().\s]/g, "");
+  if (!expr || !/[0-9]/.test(expr) || !/[+\-*/]/.test(expr)) return null;
+  let resultado;
+  try {
+    resultado = Function('"use strict"; return (' + expr + ")")();
+  } catch (e) { return null; }
+  if (typeof resultado !== "number" || !isFinite(resultado)) return null;
+  const t = "Jefe: " + expr + " es igual a " + (Math.round(resultado * 100) / 100);
+  return { html: "<b>🧮 " + escapeHtml(t) + "</b>", texto: t };
 }
 
 // Rutas de conexión: tu proxy primero, luego directo y proxies públicos
@@ -618,10 +687,30 @@ async function procesarComando(texto) {
     } catch (e) {
       ocultarTyping();
       finalizarRespuesta(texto, "<b>🌡️ No pude obtener el clima.</b>",
-        "No pude obtener el clima. Prueba a decir: temperatura en Madrid, o permite la ubicación.");
+        "Jefe: no pude obtener el clima. Prueba a decir: temperatura en Madrid, o permite la ubicación.");
     }
     return;
   }
+
+  // ── TEMPORIZADORES ──
+  if (/recuerda|alarma|temporizador|timer/i.test(texto)) {
+    const t = comandoTemporizador(texto);
+    if (t) {
+      finalizarRespuesta(texto, t.html, t.texto);
+    } else {
+      finalizarRespuesta(texto, "<b>⏱️ ¿Cuándo, jefe?</b>",
+        "Jefe: dime la forma: recuérdame en 5 minutos, o alarma en 1 hora.");
+    }
+    return;
+  }
+
+  // ── NOTAS ──
+  const nota = comandoNotas(texto);
+  if (nota) { finalizarRespuesta(texto, nota.html, nota.texto); return; }
+
+  // ── MATEMÁTICAS ──
+  const mate = comandoMatematicas(texto);
+  if (mate) { finalizarRespuesta(texto, mate.html, mate.texto); return; }
 
   const local = comandoLocal(texto);
   let html, textoRespuesta;
@@ -651,7 +740,7 @@ async function procesarComando(texto) {
         3. Toca <b>AJUSTES → PROBAR CONEXIÓN</b> para ver qué ruta funciona<br>
         4. Si todo falla por CORS, despliega el Worker gratis: ver <code>proxy-worker.js</code>
       </div>`;
-      textoRespuesta = "No pude conectar con la IA. Revisa la consola para los pasos.";
+      textoRespuesta = "Jefe: no pude conectar con la IA. Revisa la consola para los pasos.";
     }
     ocultarTyping();
   }

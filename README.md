@@ -8,6 +8,10 @@ Tu asistente que **siempre está escuchando**. Di la palabra mágica **"VIERNES"
 
 - 🎤 **Modo siempre escuchando** — escucha continuamente (reinicio canónico en `onend` + keepalive cada 15 s) y solo se activa con la palabra mágica **"VIERNES"**
 - 🌡️ **Clima en vivo** (Open-Meteo, gratis): "VIERNES, temperatura en Madrid" o "VIERNES, ¿qué clima hace?"
+- ⏱️ **Temporizadores**: "VIERNES, recuérdame en 5 minutos"
+- 📝 **Notas**: "VIERNES, guarda nota comprar leche" / "VIERNES, mis notas"
+- 🧮 **Cálculos**: "VIERNES, ¿cuánto es 12 por 8?"
+- 🎩 **Trato de jefe**: cada respuesta te dice "jefe"
 - 🔊 **Responde en voz** (texto a voz en español, sin leer emojis) o por texto
 - 🎙️ **Voz a la carta**: selector de voz + **tono estilo JARVIS** en Ajustes
 - 🎨 **Interfaz J.A.R.V.I.S.**: reactor de arco giratorio, HUD cian, tipografía Orbitron
