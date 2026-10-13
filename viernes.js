@@ -45,6 +45,24 @@ const SYSTEM_PROMPT =
   "Restricciones: NUNCA uses emojis ni símbolos especiales, porque tu respuesta se lee en voz alta y no se pueden pronunciar. " +
   "Formato: texto claro, buena ortografía, mayúsculas al inicio y puntuación correcta.";
 
+// ── Calificativo rotativo para respuestas locales ──
+// "Jefe" (cotidiano), "Señor Daniel" (formal), "Señor" (breve) o ninguno.
+// Ponderado y sin repetir el anterior, como haría una persona.
+let ultimoCalificativo = "";
+function calificativo() {
+  const bolsa = ["Jefe", "Jefe", "Jefe", "Señor Daniel", "Señor Daniel", "Señor", ""];
+  let c;
+  do { c = bolsa[Math.floor(Math.random() * bolsa.length)]; }
+  while (c === ultimoCalificativo);
+  ultimoCalificativo = c;
+  return c;
+}
+// Prefija la frase con el calificativo: "Jefe: son las 3." / "Son las 3."
+function conTrato(frase) {
+  const c = calificativo();
+  return c ? c + ": " + frase : frase.charAt(0).toUpperCase() + frase.slice(1);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // UTILIDADES
 // ═══════════════════════════════════════════════════════════════
@@ -357,7 +375,7 @@ async function toggleEscucha() {
       return;
     }
     iniciarEscucha();
-    if (historial.length === 0) hablar("Jefe: modo siempre escuchando activado. Di: VIERNES, y luego tu pregunta.");
+    if (historial.length === 0) hablar(conTrato("modo siempre escuchando activado. Di: VIERNES, y luego tu pregunta."));
   }
 }
 
@@ -544,27 +562,38 @@ function comandoLocal(t) {
   const n = normalizar(t);
   if (!n) return null;
 
-  if (/^(hola|buenas|buenos dias|buenas tardes|buenas noches|hey|ey|que tal|buen dia)$/.test(n))
-    return { html: "<b>¡Hola, jefe! 👋</b> Soy VIERNES, tu asistente personal. Pregúntame lo que necesites: horas, fechas, clima, notas, cálculos…",
-             texto: "Hola, jefe. Soy VIERNES, tu asistente personal. Pregúntame lo que necesites." };
+  if (/^(hola|buenas|buenos dias|buenas tardes|buenas noches|hey|ey|que tal|buen dia)$/.test(n)) {
+    const c = calificativo().toLowerCase();
+    const nom = c ? ", " + c : "";
+    return { html: `<b>¡Hola${nom}! 👋</b> Soy VIERNES, tu asistente personal. Pregúntame lo que necesites: horas, fechas, clima, notas, cálculos…`,
+             texto: `Hola${nom}. Soy VIERNES, tu asistente personal. Pregúntame lo que necesites.` };
+  }
 
   if (/que hora (es|son)/.test(n)) {
     const h = new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
-    return { html: `<b>🕐 Jefe: son las ${h}.</b>`, texto: `Jefe: son las ${h}.` };
+    const t = conTrato("son las " + h + ".");
+    return { html: `<b>🕐 ${t}</b>`, texto: t };
   }
   if (/que fecha|que dia es hoy|dia de hoy/.test(n)) {
     const f = new Date().toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long" });
-    return { html: `<b>📅 Jefe: hoy es ${f}.</b>`, texto: `Jefe: hoy es ${f}.` };
+    const t = conTrato("hoy es " + f + ".");
+    return { html: `<b>📅 ${t}</b>`, texto: t };
   }
-  if (/como te llamas|tu nombre|quien eres/.test(n))
-    return { html: "<b>Soy VIERNES</b> 🤖 Tu asistente personal, jefe, siempre listo para ayudarte.",
-             texto: "Soy VIERNES, tu asistente personal, jefe, siempre listo para ayudarte." };
-  if (/gracias/.test(n))
-    return { html: "<b>¡De nada, jefe! 😊</b> Aquí estoy para lo que necesites.",
-             texto: "De nada, jefe. Aquí estoy para lo que necesites." };
+  if (/como te llamas|tu nombre|quien eres/.test(n)) {
+    const c = calificativo().toLowerCase();
+    const tr = c ? ", " + c + "," : "";
+    return { html: `<b>Soy VIERNES</b> 🤖 Tu asistente personal${tr} siempre listo para ayudarte.`,
+             texto: `Soy VIERNES, tu asistente personal${tr} siempre listo para ayudarte.` };
+  }
+  if (/gracias/.test(n)) {
+    const c = calificativo().toLowerCase();
+    const tr = c ? ", " + c : "";
+    return { html: `<b>¡De nada${tr}! 😊</b> Aquí estoy para lo que necesites.`,
+             texto: `De nada${tr}. Aquí estoy para lo que necesites.` };
+  }
   if (/callate|silencio|deja de hablar|para de hablar/.test(n)) {
     if (window.speechSynthesis) speechSynthesis.cancel();
-    return { html: "<b>🔇 Listo, jefe: en silencio.</b>", texto: "" };
+    return { html: "<b>🔇 " + conTrato("en silencio.") + "</b>", texto: "" };
   }
   return null;
 }
@@ -607,9 +636,9 @@ async function climaDe(lat, lon, lugar) {
   const j = await r.json();
   const c = j.current || {};
   const desc = CODIGOS_CLIMA[c.weather_code] || "cambiante";
-  return "Jefe: en " + lugar + ": " + Math.round(c.temperature_2m) +
+  return conTrato("en " + lugar + ": " + Math.round(c.temperature_2m) +
     " grados " + desc + ", se sienten como " + Math.round(c.apparent_temperature || c.temperature_2m) +
-    ", humedad " + c.relative_humidity_2m + "%, viento " + Math.round(c.wind_speed_10m) + " kilómetros por hora.";
+    ", humedad " + c.relative_humidity_2m + "%, viento " + Math.round(c.wind_speed_10m) + " kilómetros por hora.");
 }
 
 // "VIERNES, temperatura en Madrid" o "VIERNES, ¿qué clima hace?"
@@ -641,13 +670,13 @@ function comandoTemporizador(texto) {
   const ms = unidad.startsWith("seg") ? cantidad * 1000
     : unidad.startsWith("min") ? cantidad * 60000
     : cantidad * 3600000;
-  const aviso = "Jefe: tu temporizador de " + cantidad + " " + unidad + " terminó.";
+  const aviso = conTrato("tu temporizador de " + cantidad + " " + unidad + " terminó.");
   setTimeout(() => {
     beep(880, 0.25);
     setTimeout(() => beep(1174, 0.35), 250);
     hablar(aviso);
   }, ms);
-  const t = "Sí, jefe: temporizador de " + cantidad + " " + unidad + " activado.";
+  const t = conTrato("temporizador de " + cantidad + " " + unidad + " activado.");
   return { html: "<b>⏱️ " + escapeHtml(t) + "</b>", texto: t };
 }
 
@@ -659,9 +688,12 @@ function comandoNotas(texto) {
   if (/^(mis notas|leer notas|que notas|notas)$/.test(n)) {
     let notas = [];
     try { notas = JSON.parse(localStorage.getItem("viernes_notas") || "[]"); } catch (e) {}
-    if (!notas.length) return { html: "<b>📝 Jefe, no tienes notas.</b>", texto: "Jefe, no tienes notas." };
+    if (!notas.length) {
+      const t = conTrato("no tienes notas.");
+      return { html: "<b>📝 " + t + "</b>", texto: t };
+    }
     const lista = notas.map((x, i) => (i + 1) + ". " + x).join("; ");
-    const t = "Jefe: tienes " + notas.length + " notas. " + lista;
+    const t = conTrato("tienes " + notas.length + " notas. " + lista);
     return { html: "<b>📝 " + escapeHtml(t) + "</b>", texto: t };
   }
   const m = texto.match(/(?:guarda|apunta|anota|nota:?)\s+(.+)/i);
@@ -671,7 +703,7 @@ function comandoNotas(texto) {
     try { notas = JSON.parse(localStorage.getItem("viernes_notas") || "[]"); } catch (e) {}
     notas.push(contenido);
     try { localStorage.setItem("viernes_notas", JSON.stringify(notas.slice(-50))); } catch (e) {}
-    const t = "Sí, jefe: nota guardada.";
+    const t = conTrato("nota guardada.");
     return { html: "<b>📝 " + escapeHtml(t) + "</b> <i>(" + escapeHtml(contenido) + ")</i>", texto: t };
   }
   return null;
@@ -694,7 +726,7 @@ function comandoMatematicas(texto) {
     resultado = Function('"use strict"; return (' + expr + ")")();
   } catch (e) { return null; }
   if (typeof resultado !== "number" || !isFinite(resultado)) return null;
-  const t = "Jefe: " + expr + " es igual a " + (Math.round(resultado * 100) / 100);
+  const t = conTrato(expr + " es igual a " + (Math.round(resultado * 100) / 100));
   return { html: "<b>🧮 " + escapeHtml(t) + "</b>", texto: t };
 }
 
@@ -754,7 +786,7 @@ async function procesarComando(texto) {
     } catch (e) {
       ocultarTyping();
       finalizarRespuesta(texto, "<b>🌡️ No pude obtener el clima.</b>",
-        "Jefe: no pude obtener el clima. Prueba a decir: temperatura en Madrid, o permite la ubicación.");
+        conTrato("no pude obtener el clima. Prueba a decir: temperatura en Madrid, o permite la ubicación."));
     }
     return;
   }
@@ -765,8 +797,9 @@ async function procesarComando(texto) {
     if (t) {
       finalizarRespuesta(texto, t.html, t.texto);
     } else {
-      finalizarRespuesta(texto, "<b>⏱️ ¿Cuándo, jefe?</b>",
-        "Jefe: dime la forma: recuérdame en 5 minutos, o alarma en 1 hora.");
+      const c = calificativo().toLowerCase();
+      finalizarRespuesta(texto, `<b>⏱️ ¿Cuándo${c ? ", " + c : ""}?</b>`,
+        conTrato("dime la forma: recuérdame en 5 minutos, o alarma en 1 hora."));
     }
     return;
   }
@@ -807,7 +840,7 @@ async function procesarComando(texto) {
         3. Toca <b>AJUSTES → PROBAR CONEXIÓN</b> para ver qué ruta funciona<br>
         4. Si todo falla por CORS, despliega el Worker gratis: ver <code>proxy-worker.js</code>
       </div>`;
-      textoRespuesta = "Jefe: no pude conectar con la IA. Revisa la consola para los pasos.";
+      textoRespuesta = conTrato("no pude conectar con la IA. Revisa la consola para los pasos.");
     }
     ocultarTyping();
   }
