@@ -244,8 +244,9 @@ function hablar(texto) {
   if (ajustes.vozNatural && window.VIERNES_PROXY_URL) {
     hablarNatural(limpio)
       .then((ok) => {
-        if (ok) reanudarEscucha(); // ¡reanudar la escucha al terminar!
-        else hablarConVozLocal(limpio);
+        if (ok === true) reanudarEscucha(); // ¡reanudar la escucha al terminar!
+        else if (ok === false) hablarConVozLocal(limpio);
+        // "cancelado": otra respuesta tomó el control, no hacer nada
       })
       .catch(() => hablarConVozLocal(limpio));
     // seguridad: si la voz natural falla en silencio, nunca quedarse mudo
@@ -311,25 +312,52 @@ function partirTexto(texto, max) {
 }
 
 let ctxVoz = null; // un solo AudioContext para toda la sesión
+let fuenteVoz = null; // fuente de audio actual (para cancelar solapadas)
+let generacionVoz = 0; // cancela reproducciones antiguas
+
 async function hablarNatural(texto) {
   const base = (window.VIERNES_PROXY_URL || "").replace(/\/$/, "");
   if (!base || !window.AudioContext) return false;
+  const miGeneracion = ++generacionVoz; // cancela lo que sonaba antes
+  if (fuenteVoz) { try { fuenteVoz.stop(); } catch (e) {} fuenteVoz = null; }
   try {
-    if (!ctxVoz) ctxVoz = new (window.AudioContext || window.webkitAudioContext)();
+    if (!ctxVoz || ctxVoz.state === "closed") {
+      ctxVoz = new (window.AudioContext || window.webkitAudioContext)();
+    }
     const ctx = ctxVoz;
     if (ctx.state === "suspended") await ctx.resume();
     for (const frag of partirTexto(texto, 180)) {
+      if (miGeneracion !== generacionVoz) return "cancelado"; // otra voz tomó el control
       const control = new AbortController();
       const seguro = setTimeout(() => control.abort(), 10000);
-      const r = await fetch(base + "/tts?texto=" + encodeURIComponent(frag), { signal: control.signal });
+      let r = await fetch(base + "/tts?texto=" + encodeURIComponent(frag), { signal: control.signal });
       clearTimeout(seguro);
+      // reintento ante errores pasajeros del servidor (429/5xx)
+      if (!r.ok && (r.status >= 500 || r.status === 429)) {
+        await new Promise((d) => setTimeout(d, 400));
+        r = await fetch(base + "/tts?texto=" + encodeURIComponent(frag));
+      }
       if (!r.ok) throw new Error("HTTP " + r.status);
       const audio = await ctx.decodeAudioData(await r.arrayBuffer());
       const fuente = ctx.createBufferSource();
       fuente.buffer = audio;
       fuente.playbackRate.value = ajustes.velocidad || 1; // la velocidad del usuario también aplica aquí
       fuente.connect(ctx.destination);
-      await new Promise((res) => { fuente.onended = res; fuente.start(); });
+      fuenteVoz = fuente;
+      await new Promise((res) => {
+        let hecho = false;
+        const fin = () => {
+          if (hecho) return;
+          hecho = true;
+          clearTimeout(tiempo);
+          res();
+        };
+        // macOS/Safari a veces NO dispara onended: temporizador de seguridad
+        const tiempo = setTimeout(fin, audio.duration * 1000 + 300);
+        fuente.onended = fin;
+        fuente.start();
+      });
+      fuenteVoz = null;
     }
     return true;
   } catch (e) {
