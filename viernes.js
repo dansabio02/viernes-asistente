@@ -296,6 +296,7 @@ async function hablarNatural(texto) {
       const audio = await ctx.decodeAudioData(await r.arrayBuffer());
       const fuente = ctx.createBufferSource();
       fuente.buffer = audio;
+      fuente.playbackRate.value = ajustes.velocidad || 1; // la velocidad del usuario también aplica aquí
       fuente.connect(ctx.destination);
       await new Promise((res) => { fuente.onended = res; fuente.start(); });
     }
@@ -928,6 +929,14 @@ function aplicarAjustes() {
   $("ajTono").value = ajustes.tono;
   $("ajLang").value = ajustes.lang;
   poblarVoces();
+}
+
+// Elegir una voz del listado cambia a la voz del sistema
+// (la voz natural de Google no se puede cambiar, es fija)
+function elegirVozLocal() {
+  ajustes.vozNatural = false;
+  $("ajVozNat").checked = false;
+  guardarAjustes();
 }
 
 // ═══════════════════════════════════════════════════════════════

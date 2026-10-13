@@ -293,15 +293,15 @@
         <input type="checkbox" id="ajVozNat" onchange="guardarAjustes()" checked class="w-4 h-4">
       </label>
       <label class="flex items-center justify-between gap-3">
-        <span class="label-hud">🎙️ Voz</span>
-        <select id="ajVozSel" onchange="guardarAjustes()" class="px-2 py-1 rounded-sm text-xs w-52"></select>
+        <span class="label-hud">🎙️ Voz del sistema<br><span class="text-slate-500 text-[10px]">elegir una desactiva la natural</span></span>
+        <select id="ajVozSel" onchange="elegirVozLocal()" class="px-2 py-1 rounded-sm text-xs w-52"></select>
       </label>
       <label class="flex items-center justify-between gap-3">
         <span class="label-hud">⏩ Velocidad</span>
         <input type="range" id="ajVel" min="0.7" max="1.6" step="0.1" value="1" onchange="guardarAjustes()" class="w-32">
       </label>
       <label class="flex items-center justify-between gap-3">
-        <span class="label-hud">📈 Tono (estilo JARVIS)</span>
+        <span class="label-hud">📈 Tono <span class="text-slate-500">(voz del sistema)</span></span>
         <input type="range" id="ajTono" min="0.6" max="1.8" step="0.05" value="1.1" onchange="guardarAjustes()" class="w-32">
       </label>
       <label class="flex items-center justify-between gap-3">
