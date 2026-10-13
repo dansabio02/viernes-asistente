@@ -57,7 +57,7 @@
   .orb {
     --glow: rgba(100,116,139,.4);
     --glow-suave: rgba(100,116,139,.12);
-    width: 280px; height: 280px; position: relative; cursor: pointer; user-select: none;
+    width: 340px; height: 340px; position: relative; cursor: pointer; user-select: none;
     transition: filter .4s;
   }
   .orb.detenido   { --glow: rgba(100,116,139,.4);  --glow-suave: rgba(100,116,139,.12); }
@@ -71,7 +71,7 @@
   @keyframes ripple { 0% { transform: scale(1); opacity: .45; } 100% { transform: scale(2); opacity: 0; } }
 
   .ticks {
-    position: absolute; inset: -16px; border-radius: 50%; pointer-events: none;
+    position: absolute; inset: -19px; border-radius: 50%; pointer-events: none;
     background: repeating-conic-gradient(from 0deg, var(--glow) 0deg .8deg, transparent .8deg 6deg);
     -webkit-mask: radial-gradient(circle, transparent 60%, black 61%, black 66%, transparent 67%);
             mask: radial-gradient(circle, transparent 60%, black 61%, black 66%, transparent 67%);
@@ -80,11 +80,11 @@
 
   .anillo { position: absolute; border-radius: 50%; pointer-events: none; }
   .a1 { inset: 0; border: 2px dashed var(--glow); animation: girar 18s linear infinite; }
-  .a2 { inset: 24px; border: 2px dotted var(--glow); animation: girar 12s linear infinite reverse; }
-  .a3 { inset: 48px; border: 3px double var(--glow); animation: girar 26s linear infinite; }
+  .a2 { inset: 29px; border: 2px dotted var(--glow); animation: girar 12s linear infinite reverse; }
+  .a3 { inset: 58px; border: 3px double var(--glow); animation: girar 26s linear infinite; }
 
   .barrido {
-    position: absolute; inset: 69px; border-radius: 50%; pointer-events: none;
+    position: absolute; inset: 84px; border-radius: 50%; pointer-events: none;
     background: conic-gradient(from 0deg, transparent 0deg, var(--glow) 35deg, transparent 70deg);
     -webkit-mask: radial-gradient(circle, transparent 52%, black 53%);
             mask: radial-gradient(circle, transparent 52%, black 53%);
@@ -95,7 +95,7 @@
   .orb.activado .a2 { animation-duration: 2.4s; }
 
   .nucleo {
-    position: absolute; inset: 83px; border-radius: 50%;
+    position: absolute; inset: 100px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
     background: radial-gradient(circle at 50% 38%, var(--glow-suave), rgba(0,0,0,.25) 75%);
     border: 1px solid var(--glow);
@@ -112,7 +112,7 @@
     position: relative; z-index: 1;
     font-family: 'Orbitron', sans-serif;
     font-weight: 700;
-    font-size: 14px;
+    font-size: 16px;
     letter-spacing: .13em;
     color: var(--glow);
     text-shadow: 0 0 12px var(--glow), 0 0 30px var(--glow-suave);
@@ -199,10 +199,10 @@
   .latido { animation: latido 1.4s infinite; }
 
   @media (max-width: 640px) {
-    .orb { width: 210px; height: 210px; }
-    .nucleo { inset: 62px; } .a2 { inset: 18px; } .a3 { inset: 36px; }
-    .barrido { inset: 52px; } .ticks { inset: -12px; }
-    .orb-label { font-size: 11px; letter-spacing: .1em; }
+    .orb { width: 240px; height: 240px; }
+    .nucleo { inset: 71px; } .a2 { inset: 21px; } .a3 { inset: 41px; }
+    .barrido { inset: 59px; } .ticks { inset: -14px; }
+    .orb-label { font-size: 12px; letter-spacing: .11em; }
   }
 </style>
 <script src="config.js"></script>
@@ -232,7 +232,7 @@
   </div>
 </header>
 
-<main class="flex-grow w-full max-w-3xl mx-auto px-4 py-6 flex flex-col items-center gap-5">
+<main class="flex-grow w-full max-w-3xl mx-auto px-4 flex flex-col items-center justify-center gap-6 py-6">
 
   <!-- ═══ REACTOR ═══ -->
   <div class="flex flex-col items-center gap-4 pt-4">
@@ -256,6 +256,9 @@
       <div id="estadoSub" class="label-hud mt-1">PALABRA MÁGICA: <b class="text-cyan-300">"VIERNES"</b></div>
     </div>
   </div>
+</main>
+
+<footer class="w-full max-w-3xl mx-auto px-4 pb-5 flex flex-col items-center gap-4">
 
   <!-- ═══ INPUT ═══ -->
   <form onsubmit="enviarForm(event)" class="w-full flex items-center gap-2 pb-2">
@@ -318,11 +321,11 @@
     </div>
   </details>
 
-  <p class="font-mono2 text-[10px] text-slate-500 text-center pb-6 leading-relaxed">
-    ⚠️ EL MICRÓFONO REQUIERE <b class="text-cyan-400">HTTPS</b> (O LOCALHOST) · CHROME / EDGE<br>
+  <p class="font-mono2 text-[10px] text-slate-500 text-center pb-4 leading-relaxed">
+    ⚠️ EL MICRÓFONO REQUIERE <b class="text-cyan-400">HTTPS</b> (O LOCALHOST) · CHROME / EDGE · DI <b class="text-cyan-300">"VIERNES"</b> ANTES DE CADA PEDIDO<br>
     MANTÉN ESTA PESTAÑA ABIERTA PARA ESCUCHA CONTINUA
   </p>
-</main>
+</footer>
 
 <script src="viernes.js?v=4"></script>
 <script>

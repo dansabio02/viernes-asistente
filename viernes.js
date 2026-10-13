@@ -557,7 +557,15 @@ function hablarAhora() {
     $("btnPush").classList.remove("latido");
     ocultarLive();
     reanudarContinua();
-    if (cmd.length >= 2) procesarComando(cmd);
+    // regla estricta: solo se ejecuta después de la palabra clave
+    const n = normalizar(cmd);
+    if (n.indexOf(WAKE_WORD) !== -1) {
+      const pedido = n.split(WAKE_WORD).slice(1).join(WAKE_WORD).trim();
+      if (pedido.length >= 2) procesarComando(pedido);
+    } else if (cmd.length >= 2) {
+      mostrarError("Di la palabra <b class=\"text-cyan-300\">VIERNES</b> antes de tu pedido.");
+      hablar(conTrato("di la palabra VIERNES antes de tu pedido."));
+    }
   };
   ptr.onerror = () => {
     ptr = null;
