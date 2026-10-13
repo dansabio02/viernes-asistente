@@ -100,7 +100,7 @@ function setEstado(nuevo) {
     hablando:   { icono: "fa-volume-high",      label: "TRANSMITIENDO",     dot: "bg-emerald-400",  txt: "RESPONDIENDO…" }
   };
   const m = mapa[nuevo] || mapa.detenido;
-  icono.className = "fa-solid " + m.icono + " cara";
+  if (icono) icono.className = "fa-solid " + m.icono + " cara";
   $("statusLabel").textContent = m.label;
   $("statusDot").className = "w-2 h-2 rounded-full " + m.dot;
   $("estadoTexto").textContent = m.txt;
@@ -109,13 +109,23 @@ function setEstado(nuevo) {
 
 function mostrarLive(texto) {
   if (!texto) return;
-  $("liveBox").classList.remove("hidden");
+  const box = $("liveBox");
+  if (!box) return; // modo orbe: sin transcripción en pantalla
+  box.classList.remove("hidden");
   $("liveTexto").textContent = "“" + texto + "”";
 }
-function ocultarLive() { $("liveBox").classList.add("hidden"); $("liveTexto").textContent = ""; }
+function ocultarLive() {
+  const box = $("liveBox");
+  if (!box) return;
+  box.classList.add("hidden");
+  $("liveTexto").textContent = "";
+}
 
 function mostrarError(msg) {
   agregarMensaje("assistant", `<div class="rounded-xl p-3 border" style="background:#FEF2F2;border-color:#FECACA;"><b class="text-red-700 text-sm"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${msg}</b></div>`, msg);
+  // modo orbe: los errores se leen bajo el reactor
+  const sub = $("estadoSub");
+  if (sub) sub.innerHTML = "⚠️ " + msg;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -123,6 +133,7 @@ function mostrarError(msg) {
 // ═══════════════════════════════════════════════════════════════
 function agregarMensaje(rol, html, textoPlanos) {
   const caja = $("chatMessages");
+  if (!caja) return null; // modo orbe: las respuestas solo se escuchan
   const div = document.createElement("div");
   div.className = "mensaje flex items-start gap-2.5";
   if (rol === "user") {
@@ -148,6 +159,7 @@ function formatearRespuesta(t) {
 
 function mostrarTyping() {
   const caja = $("chatMessages");
+  if (!caja) return;
   const div = document.createElement("div");
   div.id = "typing";
   div.className = "mensaje flex items-start gap-2.5";
@@ -166,7 +178,8 @@ function guardarHistorial() {
 function limpiarHistorial() {
   historial = [];
   guardarHistorial();
-  $("chatMessages").innerHTML = `<div class="text-center text-[11px] text-slate-500 py-3"><i class="fa-solid fa-rotate-right mr-1"></i>Nueva conversación</div>`;
+  const caja = $("chatMessages");
+  if (caja) caja.innerHTML = `<div class="text-center text-[11px] text-slate-500 py-3"><i class="fa-solid fa-rotate-right mr-1"></i>Nueva conversación</div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -841,6 +854,8 @@ async function procesarComando(texto) {
         4. Si todo falla por CORS, despliega el Worker gratis: ver <code>proxy-worker.js</code>
       </div>`;
       textoRespuesta = conTrato("no pude conectar con la IA. Revisa la consola para los pasos.");
+      const sub = $("estadoSub");
+      if (sub) sub.innerHTML = "⚠️ Sin conexión con la IA — AJUSTES → PROBAR CONEXIÓN";
     }
     ocultarTyping();
   }
@@ -872,6 +887,7 @@ async function diagnosticar() {
     }
   } catch (e) {}
   const filas = [];
+  const rutasOk = [];
   const keyOk = GROQ_API_KEY && GROQ_API_KEY !== "PEGA_AQUI_TU_GROQ_API_KEY" && GROQ_API_KEY.indexOf("PEGA_AQUI") !== 0;
   filas.push(`<div class="flex justify-between gap-2 py-0.5"><span>API key en config.js</span><b>${keyOk ? "✅ presente (…" + escapeHtml(GROQ_API_KEY.slice(-4)) + ")" : "❌ NO configurada"}</b></div>`);
   const permisoMic = await estadoPermiso();
@@ -892,6 +908,7 @@ async function diagnosticar() {
       });
       if (r.ok) {
         res = "✅ FUNCIONA";
+        rutasOk.push(ruta.nombre);
       } else {
         const t = (await r.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 70);
         res = `❌ HTTP ${r.status} ${escapeHtml(t)}`;
@@ -910,6 +927,13 @@ async function diagnosticar() {
       La solución estable es desplegar <code>proxy-worker.js</code> (gratis en Cloudflare) y poner su URL en <code>config.js</code> como <code>VIERNES_PROXY_URL</code>.
     </div>`;
   agregarMensaje("assistant", html, "Diagnóstico completo");
+  // modo orbe: el diagnóstico se escucha (no hay chat)
+  if (!$("chatMessages")) {
+    hablar("Diagnóstico. Key " + (keyOk ? "presente" : "no configurada") +
+      ". Protocolo " + (location.protocol === "file:" ? "archivo, no guarda permiso" : location.protocol.replace(":", "")) +
+      ". Micrófono " + (permisoMic === "granted" ? "concedido" : permisoMic === "denied" ? "bloqueado" : "pendiente") +
+      ". Funcionan: " + (rutasOk.length ? rutasOk.join(", ") : "ninguna ruta") + ".");
+  }
 }
 
 // Fuerza descarte de la caché del Service Worker y recarga
@@ -1003,13 +1027,16 @@ function elegirVozLocal() {
 
   if (historial.length > 0) {
     const caja = $("chatMessages");
-    caja.innerHTML = "";
-    // renderiza un resumen ligero de la conversación previa
-    historial.slice(-8).forEach((m) => {
-      agregarMensaje(m.rol, m.rol === "assistant" ? formatearRespuesta(m.texto) : "", m.texto);
-    });
+    if (caja) {
+      caja.innerHTML = "";
+      // renderiza un resumen ligero de la conversación previa
+      historial.slice(-8).forEach((m) => {
+        agregarMensaje(m.rol, m.rol === "assistant" ? formatearRespuesta(m.texto) : "", m.texto);
+      });
+    }
   } else {
-    $("chatMessages").innerHTML = `
+    const caja = $("chatMessages");
+    if (caja) caja.innerHTML = `
       <div class="mensaje flex items-start gap-2.5">
         <div class="w-8 h-8 rounded-full shrink-0 flex items-center justify-center border border-cyan-400/40" style="background: rgba(0,212,255,.1);"><i class="fa-solid fa-brain text-cyan-300 text-xs"></i></div>
         <div class="max-w-[85%] msg-ia rounded-sm px-3.5 py-2.5 text-sm leading-relaxed">
