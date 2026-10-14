@@ -335,20 +335,50 @@ let ctxVoz = null; // UN solo AudioContext para toda la sesión (beeps)
 let audioActual = null; // elemento <audio> de la voz natural
 let generacionVoz = 0; // cancela reproducciones antiguas
 
-// Voz natural de Google vía el Worker.
-// Usa <audio> NATIVO: decodificación por hardware (suave en macOS/Safari),
-// sin AudioContext ni decodeAudioData. Todos los fragmentos se precargan
-// antes de sonar, para que la cadena casi no tenga huecos.
+// Voz natural: ELEVENLABS (Luisa) → GOOGLE → voz del sistema.
+// Descarga TODO el MP3 primero y lo convierte en object URLs:
+// UNA sola petición por fragmento y cero cortes de red durante
+// la reproducción (el audio ya está en memoria).
 async function hablarNatural(texto) {
   const base = (window.VIERNES_PROXY_URL || "").replace(/\/$/, "");
   if (!base) return false;
   const miGeneracion = ++generacionVoz;
   if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; }
+  let urls = [];
   try {
-    const urls = partirTexto(texto, 180).map(
-      (p) => base + "/tts?texto=" + encodeURIComponent(p)
-    );
+    let ruta = "/tts11"; // ElevenLabs primero; Google de respaldo
+    const obtenerMP3 = async (frag) => {
+      const control = new AbortController();
+      const seguro = setTimeout(() => control.abort(), 12000);
+      let r = await fetch(base + ruta + "?texto=" + encodeURIComponent(frag), { signal: control.signal });
+      clearTimeout(seguro);
+      // error de configuración (400/401/403/404): sin ElevenLabs → Google
+      if (!r.ok && ruta === "/tts11" && r.status < 500 && r.status !== 429) {
+        ruta = "/tts";
+        r = await fetch(base + ruta + "?texto=" + encodeURIComponent(frag));
+      }
+      // transitorio (429/5xx): reintento una vez
+      if (!r.ok && (r.status >= 500 || r.status === 429)) {
+        await new Promise((d) => setTimeout(d, 400));
+        r = await fetch(base + ruta + "?texto=" + encodeURIComponent(frag));
+      }
+      // sigue fallando en ElevenLabs → Google para el resto
+      if (!r.ok && ruta === "/tts11") {
+        ruta = "/tts";
+        r = await fetch(base + ruta + "?texto=" + encodeURIComponent(frag));
+      }
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return await r.arrayBuffer();
+    };
+    // 1) descargar TODOS los fragmentos (object URLs locales)
+    for (const frag of partirTexto(texto, 180)) {
+      if (miGeneracion !== generacionVoz) return "cancelado";
+      const mp3 = await obtenerMP3(frag);
+      urls.push(URL.createObjectURL(new Blob([mp3], { type: "audio/mpeg" })));
+    }
     if (!urls.length) return false;
+    if (miGeneracion !== generacionVoz) return "cancelado";
+    // 2) elementos <audio> con los MP3 ya en memoria
     const audios = urls.map((u) => {
       const a = new Audio();
       a.preload = "auto";
@@ -356,7 +386,7 @@ async function hablarNatural(texto) {
       a.playbackRate = ajustes.velocidad || 1; // la velocidad del usuario también aplica
       return a;
     });
-    // precargar TODO antes de sonar (canplaythrough = búfer suficiente)
+    // 3) precargar TODO antes de sonar (datos locales = instantáneo)
     const listos = await Promise.all(audios.map((a) => new Promise((res) => {
       if (a.readyState >= 3) return res(true);
       a.addEventListener("canplaythrough", () => res(true), { once: true });
@@ -365,7 +395,7 @@ async function hablarNatural(texto) {
     })));
     if (miGeneracion !== generacionVoz) return "cancelado";
     if (listos.some((ok) => !ok)) throw new Error("audio no cargado");
-    // cadena de reproducción (ya precargados = casi sin hueco)
+    // 4) cadena de reproducción
     let fallo = false;
     await new Promise((res) => {
       let i = 0;
@@ -384,7 +414,7 @@ async function hablarNatural(texto) {
           siguiente();
         };
         const d = isFinite(a.duration) ? a.duration : 15;
-        // seguridad: si el audio se cuelga (red lenta), cortarlo y avanzar
+        // seguridad: si el audio se cuelga, cortarlo y avanzar
         const seguro = setTimeout(() => {
           if (audioActual === a && !hecho) {
             try { a.pause(); } catch (e) {}
@@ -414,7 +444,13 @@ async function hablarNatural(texto) {
     if (miGeneracion !== generacionVoz) return "cancelado";
     return !fallo;
   } catch (e) {
-    return false; // sin voz natural: vuelve a la voz local
+    return false; // sin voz natural: vuelve a la voz del sistema
+  } finally {
+    // liberar la memoria de los MP3 temporales (tras sonar)
+    const pendientes = urls;
+    setTimeout(() => {
+      pendientes.forEach((u) => { try { URL.revokeObjectURL(u); } catch (e) {} });
+    }, 60000);
   }
 }
 

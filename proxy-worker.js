@@ -1,5 +1,5 @@
-// Cloudflare Worker — proxy para Groq + voz natural Google TTS
-// (la key queda en el servidor, no en el navegador)
+// Cloudflare Worker — proxy para Groq + voz natural
+// (las keys quedan en el servidor, no en el navegador)
 //
 // CÓMO DESPLEGAR (5 minutos, gratis):
 // 1. dash.cloudflare.com → Workers & Pages → Create → Create Worker
@@ -12,14 +12,51 @@
 // 6. Si aparece "unpublished changes" → Deploy otra vez.
 //
 // ENDPOINTS:
-//   POST /            → proxy a Groq (usa GROQ_API_KEY del entorno,
-//                       o la key incrustada más abajo si no la configuraste)
-//   GET  /tts?texto=… → voz natural de Google (MP3, gratis, sin key)
+//   POST /              → proxy a Groq (GROQ_API_KEY del entorno)
+//   GET  /tts?texto=…   → voz natural de Google (MP3, gratis, sin key)
+//   GET  /tts11?texto=… → voz natural ElevenLabs "Luisa"
+//                          (ELEVENLABS_API_KEY del entorno, gratis 10k caracteres/mes)
 
 export default {
   async fetch(request) {
-    // ── TTS NATURAL (Google) · GET /tts?texto=... ──
     const url = new URL(request.url);
+
+    // ── TTS ELEVENLABS · Luisa (voz natural de 32 idiomas) ──
+    if (url.pathname === "/tts11") {
+      const texto = url.searchParams.get("texto") || "";
+      if (!texto) return new Response("Falta texto", { status: 400 });
+      const voz = (request.env && request.env.ELEVEN_VOICE_ID) || "1u9q7vX1Lcx74yAcFPt7";
+      const key = (request.env && request.env.ELEVENLABS_API_KEY) || "";
+      if (!key) {
+        // 400 = error de configuración: el navegador cambia a Google
+        return new Response("Falta ELEVENLABS_API_KEY", { status: 400 });
+      }
+      try {
+        const r = await fetch(
+          "https://api.elevenlabs.io/v1/text-to-speech/" + voz + "?output_format=mp3_44100_128",
+          {
+            method: "POST",
+            headers: { "xi-api-key": key, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text: texto.slice(0, 500),
+              model_id: "eleven_multilingual_v2",
+              voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true }
+            })
+          }
+        );
+        if (!r.ok) {
+          const t = (await r.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 140);
+          return new Response("Error ElevenLabs " + r.status + ": " + t, { status: 502 });
+        }
+        const resp = new Response(r.body, { status: r.status, headers: { "Content-Type": "audio/mpeg" } });
+        resp.headers.set("Access-Control-Allow-Origin", "*");
+        return resp;
+      } catch (e) {
+        return new Response("Error de TTS: " + e.message, { status: 502 });
+      }
+    }
+
+    // ── TTS NATURAL (Google) · GET /tts?texto=... ──
     if (url.pathname === "/tts") {
       const texto = url.searchParams.get("texto") || "";
       if (!texto) return new Response("Falta texto", { status: 400 });

@@ -13,7 +13,7 @@ Tu asistente que **siempre está escuchando**. Di la palabra mágica **"VIERNES"
 - 🧮 **Cálculos**: "VIERNES, ¿cuánto es 12 por 8?"
 - 🎩 **Trato de jefe**: cada respuesta te dice "jefe"
 - 🔊 **Responde en voz** (texto a voz en español, sin leer emojis) o por texto
-- 🌐 **Voz natural de Google** (por defecto): suena humana, gratis y sin key
+- 🌐 **Voz natural ElevenLabs "Luisa"** (por defecto; respaldo Google): suena humana, gratis
 - 🎙️ **Voz a la carta**: selector de voz + **tono estilo JARVIS** en Ajustes
 - 🎨 **Interfaz J.A.R.V.I.S.**: reactor de arco giratorio, HUD cian, tipografía Orbitron
 - 🧠 **Cerebro IA** vía Groq (`gpt-oss-120b` con fallback) + tu propio proxy (Cloudflare Worker)
@@ -24,7 +24,7 @@ Tu asistente que **siempre está escuchando**. Di la palabra mágica **"VIERNES"
 
 ## 🎙️ Personalizar la voz (estilo JARVIS)
 
-Por defecto VIERNES usa **voz natural de Google** (llega por tu Worker, gratis). Para usar las voces de tu sistema, en **Ajustes** desactiva *🌐 Voz natural (Google)* y:
+Por defecto VIERNES usa **voz natural de ElevenLabs — "Luisa"** (narradora joven, 32 idiomas; llega por tu Worker). Si el Worker no tiene key de ElevenLabs, usa **Google** de respaldo (gratis). Para usar las voces de tu sistema, en **Ajustes** desactiva *🌐 Voz natural (Google)* y:
 - **Voz**: elige cualquier voz en español instalada en tu sistema (Chrome/Edge traen Microsoft/Google). Para un tono más "JARVIS", prueba *Microsoft Jorge* (es-ES) o sube el **tono a 1.2–1.3**
 - **Tono**: de 0.6 (grave) a 1.8 (agudo). El default 1.1 suena claro y sintético
 - **Velocidad**: 0.7 (lento) a 1.6 (rápido)
