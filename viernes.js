@@ -352,8 +352,8 @@ async function hablarNatural(texto) {
       const seguro = setTimeout(() => control.abort(), 12000);
       let r = await fetch(base + ruta + "?texto=" + encodeURIComponent(frag), { signal: control.signal });
       clearTimeout(seguro);
-      // error de configuración (400/401/403/404): sin ElevenLabs → Google
       if (!r.ok && ruta === "/tts11" && r.status < 500 && r.status !== 429) {
+        // error definitivo de ElevenLabs (401/403/404...): → Google
         ruta = "/tts";
         r = await fetch(base + ruta + "?texto=" + encodeURIComponent(frag));
       }

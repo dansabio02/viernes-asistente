@@ -46,7 +46,11 @@ export default {
         );
         if (!r.ok) {
           const t = (await r.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 140);
-          return new Response("Error ElevenLabs " + r.status + ": " + t, { status: 502 });
+          // 4xx de ElevenLabs = error definitivo (key sin permiso, voz
+          // inexistente...): devolver el status real para que el navegador
+          // cambie a Google AL INSTANTE, sin reintentos inútiles
+          const status = (r.status >= 400 && r.status < 500) ? r.status : 502;
+          return new Response("Error ElevenLabs " + r.status + ": " + t, { status: status });
         }
         const resp = new Response(r.body, { status: r.status, headers: { "Content-Type": "audio/mpeg" } });
         resp.headers.set("Access-Control-Allow-Origin", "*");
