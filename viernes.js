@@ -356,10 +356,10 @@ async function hablarNatural(texto) {
       a.playbackRate = ajustes.velocidad || 1; // la velocidad del usuario también aplica
       return a;
     });
-    // precargar TODO antes de sonar
+    // precargar TODO antes de sonar (canplaythrough = búfer suficiente)
     const listos = await Promise.all(audios.map((a) => new Promise((res) => {
-      if (a.readyState >= 2) return res(true);
-      a.addEventListener("canplay", () => res(true), { once: true });
+      if (a.readyState >= 3) return res(true);
+      a.addEventListener("canplaythrough", () => res(true), { once: true });
       a.addEventListener("error", () => res(false), { once: true });
       setTimeout(() => res(a.readyState >= 2), 8000); // nunca quedarse esperando
     })));
@@ -374,23 +374,35 @@ async function hablarNatural(texto) {
         if (i >= audios.length) return res();
         const a = audios[i];
         audioActual = a;
-        const d = isFinite(a.duration) ? a.duration : 15;
-        const seguro = setTimeout(() => {
-          if (audioActual === a) { audioActual = null; i++; siguiente(); }
-        }, d * 1000 + 800);
-        a.onended = () => {
+        let hecho = false; // cada fragmento avanza UNA sola vez
+        const avanzar = () => {
+          if (hecho) return;
+          hecho = true;
           clearTimeout(seguro);
           audioActual = null;
           i++;
           siguiente();
         };
+        const d = isFinite(a.duration) ? a.duration : 15;
+        // seguridad: si el audio se cuelga (red lenta), cortarlo y avanzar
+        const seguro = setTimeout(() => {
+          if (audioActual === a && !hecho) {
+            try { a.pause(); } catch (e) {}
+            avanzar();
+          }
+        }, d * 1000 + 2000);
+        a.onended = avanzar;
         a.onerror = () => {
+          if (hecho) return;
+          hecho = true;
           clearTimeout(seguro);
           audioActual = null;
           fallo = true;
           res();
         };
         a.play().catch(() => {
+          if (hecho) return;
+          hecho = true;
           clearTimeout(seguro);
           audioActual = null;
           fallo = true;
