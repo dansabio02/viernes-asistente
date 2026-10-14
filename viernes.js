@@ -74,15 +74,20 @@ function $(id) { return document.getElementById(id); }
 
 function beep(freq = 880, dur = 0.12) {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // UN solo AudioContext compartido: crear uno nuevo por beep
+    // filtra contextos y traba el audio en macOS/Safari
+    if (!ctxVoz) ctxVoz = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = ctxVoz;
+    if (ctx.state === "suspended") ctx.resume();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain); gain.connect(ctx.destination);
     osc.type = "sine"; osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
-    osc.start(); osc.stop(ctx.currentTime + dur + 0.05);
+    const t = ctx.currentTime;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.start(t); osc.stop(t + dur + 0.05);
   } catch (e) {}
 }
 
@@ -311,9 +316,35 @@ function partirTexto(texto, max) {
   return partes;
 }
 
-let ctxVoz = null; // un solo AudioContext para toda la sesión
+let ctxVoz = null; // UN solo AudioContext para toda la sesión (beeps + voz)
 let fuenteVoz = null; // fuente de audio actual (para cancelar solapadas)
 let generacionVoz = 0; // cancela reproducciones antiguas
+
+// Une varios AudioBuffer en uno solo (mono, a la tasa del contexto).
+// Reproduce la respuesta completa de una vez: sin huecos entre palabras.
+function unirBuffers(ctx, buffers) {
+  let total = 0;
+  for (const b of buffers) total += b.length;
+  const union = ctx.createBuffer(1, total, ctx.sampleRate);
+  const datos = union.getChannelData(0);
+  let o = 0;
+  for (const b of buffers) {
+    const n = b.numberOfChannels;
+    if (n <= 1) {
+      datos.set(b.getChannelData(0), o);
+    } else {
+      const canales = [];
+      for (let c = 0; c < n; c++) canales.push(b.getChannelData(c));
+      for (let i = 0; i < b.length; i++) {
+        let s = 0;
+        for (const cd of canales) s += cd[i];
+        datos[o + i] = s / n;
+      }
+    }
+    o += b.length;
+  }
+  return union;
+}
 
 async function hablarNatural(texto) {
   const base = (window.VIERNES_PROXY_URL || "").replace(/\/$/, "");
@@ -326,6 +357,8 @@ async function hablarNatural(texto) {
     }
     const ctx = ctxVoz;
     if (ctx.state === "suspended") await ctx.resume();
+    // 1) descargar y decodificar TODOS los fragmentos primero
+    const buffers = [];
     for (const frag of partirTexto(texto, 180)) {
       if (miGeneracion !== generacionVoz) return "cancelado"; // otra voz tomó el control
       const control = new AbortController();
@@ -338,27 +371,31 @@ async function hablarNatural(texto) {
         r = await fetch(base + "/tts?texto=" + encodeURIComponent(frag));
       }
       if (!r.ok) throw new Error("HTTP " + r.status);
-      const audio = await ctx.decodeAudioData(await r.arrayBuffer());
-      const fuente = ctx.createBufferSource();
-      fuente.buffer = audio;
-      fuente.playbackRate.value = ajustes.velocidad || 1; // la velocidad del usuario también aplica aquí
-      fuente.connect(ctx.destination);
-      fuenteVoz = fuente;
-      await new Promise((res) => {
-        let hecho = false;
-        const fin = () => {
-          if (hecho) return;
-          hecho = true;
-          clearTimeout(tiempo);
-          res();
-        };
-        // macOS/Safari a veces NO dispara onended: temporizador de seguridad
-        const tiempo = setTimeout(fin, audio.duration * 1000 + 300);
-        fuente.onended = fin;
-        fuente.start();
-      });
-      fuenteVoz = null;
+      buffers.push(await ctx.decodeAudioData(await r.arrayBuffer()));
     }
+    if (!buffers.length) return false;
+    if (miGeneracion !== generacionVoz) return "cancelado";
+    // 2) UN solo buffer continuo: reproducción sin huecos ni solapes
+    const continuo = unirBuffers(ctx, buffers);
+    const fuente = ctx.createBufferSource();
+    fuente.buffer = continuo;
+    fuente.playbackRate.value = ajustes.velocidad || 1; // la velocidad del usuario también aplica aquí
+    fuente.connect(ctx.destination);
+    fuenteVoz = fuente;
+    await new Promise((res) => {
+      let hecho = false;
+      const fin = () => {
+        if (hecho) return;
+        hecho = true;
+        clearTimeout(tiempo);
+        res();
+      };
+      // macOS/Safari a veces NO dispara onended: temporizador de seguridad
+      const tiempo = setTimeout(fin, continuo.duration * 1000 + 300);
+      fuente.onended = fin;
+      fuente.start();
+    });
+    fuenteVoz = null;
     return true;
   } catch (e) {
     return false; // sin voz natural: vuelve a la voz local
