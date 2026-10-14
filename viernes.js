@@ -254,6 +254,7 @@ function hablar(texto) {
   // Marcar HABLANDO ANTES de stop(): así onend no reinicia la
   // escucha mientras VIERNES habla (evita que se escuche a sí mismo)
   setEstado(ESTADOS.HABLANDO);
+  ultimaActividadVoz = Date.now();
   if (recognition) { try { recognition.stop(); } catch (e) {} }
   if (window.speechSynthesis && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
   // Voz natural (Google, vía Worker) si está activada
@@ -539,6 +540,19 @@ setInterval(() => {
     try { recognition.stop(); } catch (e) {}
   }
 }, 15000);
+
+// ═══════════════════════════════════════════════════════════════
+// WATCHDOG GLOBAL: la escucha vuelve SIEMPRE.
+// Si VIERNES se queda "hablando" más de 25 s (voz natural colgada,
+// audio que nunca termina, red lenta...), reanuda a la fuerza.
+// ═══════════════════════════════════════════════════════════════
+let ultimaActividadVoz = 0;
+setInterval(() => {
+  if (modoEscucha && estado === ESTADOS.HABLANDO && !ptrActivo &&
+      Date.now() - ultimaActividadVoz > 25000) {
+    reanudarEscucha();
+  }
+}, 5000);
 
 function tratarTextoFinal(texto) {
   // enfriamiento tras responder: ignora el eco de su propia voz
