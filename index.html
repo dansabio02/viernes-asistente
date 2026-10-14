@@ -298,7 +298,7 @@
       </label>
       <label class="flex items-center justify-between gap-3">
         <span class="label-hud">📈 Tono <span class="text-slate-500">(voz del sistema)</span></span>
-        <input type="range" id="ajTono" min="0.6" max="1.8" step="0.05" value="1.1" onchange="guardarAjustes()" class="w-32">
+        <input type="range" id="ajTono" min="0.6" max="1.8" step="0.05" value="1" onchange="guardarAjustes()" class="w-32">
       </label>
       <label class="flex items-center justify-between gap-3">
         <span class="label-hud">🌎 Idioma de escucha</span>
@@ -327,7 +327,7 @@
   </p>
 </footer>
 
-<script src="viernes.js?v=4"></script>
+<script src="viernes.js?v=12"></script>
 <script>
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});

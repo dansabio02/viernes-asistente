@@ -31,7 +31,7 @@ let streamMic = null; // true = permiso de micrófono ya calentado
 let historial = [];
 try { historial = JSON.parse(localStorage.getItem("viernes_historial") || "[]"); } catch (e) { historial = []; }
 
-let ajustes = { voz: true, vozNatural: true, velocidad: 1.0, tono: 1.1, vozNombre: "", lang: "es-MX" };
+let ajustes = { voz: true, vozNatural: true, velocidad: 1.0, tono: 1.0, vozNombre: "", lang: "es-MX" };
 try { Object.assign(ajustes, JSON.parse(localStorage.getItem("viernes_ajustes") || "{}")); } catch (e) {}
 
 const SYSTEM_PROMPT =
@@ -131,6 +131,17 @@ function mostrarError(msg) {
   // modo orbe: los errores se leen bajo el reactor
   const sub = $("estadoSub");
   if (sub) sub.innerHTML = "⚠️ " + msg;
+}
+
+// Nota breve bajo el reactor (diagnóstico visible sin interrumpir)
+function notaVoz(html, ms) {
+  const sub = $("estadoSub");
+  if (!sub) return;
+  sub.innerHTML = html;
+  clearTimeout(notaVoz.timer);
+  notaVoz.timer = setTimeout(() => {
+    sub.innerHTML = 'PALABRA MÁGICA: <b class="text-cyan-300">"VIERNES"</b>';
+  }, ms || 6000);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -250,7 +261,10 @@ function hablar(texto) {
     hablarNatural(limpio)
       .then((ok) => {
         if (ok === true) reanudarEscucha(); // ¡reanudar la escucha al terminar!
-        else if (ok === false) hablarConVozLocal(limpio);
+        else if (ok === false) {
+          notaVoz("🔁 Voz del sistema (la natural no respondió)");
+          hablarConVozLocal(limpio);
+        }
         // "cancelado": otra respuesta tomó el control, no hacer nada
       })
       .catch(() => hablarConVozLocal(limpio));
@@ -316,87 +330,76 @@ function partirTexto(texto, max) {
   return partes;
 }
 
-let ctxVoz = null; // UN solo AudioContext para toda la sesión (beeps + voz)
-let fuenteVoz = null; // fuente de audio actual (para cancelar solapadas)
+let ctxVoz = null; // UN solo AudioContext para toda la sesión (beeps)
+let audioActual = null; // elemento <audio> de la voz natural
 let generacionVoz = 0; // cancela reproducciones antiguas
 
-// Une varios AudioBuffer en uno solo (mono, a la tasa del contexto).
-// Reproduce la respuesta completa de una vez: sin huecos entre palabras.
-function unirBuffers(ctx, buffers) {
-  let total = 0;
-  for (const b of buffers) total += b.length;
-  const union = ctx.createBuffer(1, total, ctx.sampleRate);
-  const datos = union.getChannelData(0);
-  let o = 0;
-  for (const b of buffers) {
-    const n = b.numberOfChannels;
-    if (n <= 1) {
-      datos.set(b.getChannelData(0), o);
-    } else {
-      const canales = [];
-      for (let c = 0; c < n; c++) canales.push(b.getChannelData(c));
-      for (let i = 0; i < b.length; i++) {
-        let s = 0;
-        for (const cd of canales) s += cd[i];
-        datos[o + i] = s / n;
-      }
-    }
-    o += b.length;
-  }
-  return union;
-}
-
+// Voz natural de Google vía el Worker.
+// Usa <audio> NATIVO: decodificación por hardware (suave en macOS/Safari),
+// sin AudioContext ni decodeAudioData. Todos los fragmentos se precargan
+// antes de sonar, para que la cadena casi no tenga huecos.
 async function hablarNatural(texto) {
   const base = (window.VIERNES_PROXY_URL || "").replace(/\/$/, "");
-  if (!base || !window.AudioContext) return false;
-  const miGeneracion = ++generacionVoz; // cancela lo que sonaba antes
-  if (fuenteVoz) { try { fuenteVoz.stop(); } catch (e) {} fuenteVoz = null; }
+  if (!base) return false;
+  const miGeneracion = ++generacionVoz;
+  if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; }
   try {
-    if (!ctxVoz || ctxVoz.state === "closed") {
-      ctxVoz = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    const ctx = ctxVoz;
-    if (ctx.state === "suspended") await ctx.resume();
-    // 1) descargar y decodificar TODOS los fragmentos primero
-    const buffers = [];
-    for (const frag of partirTexto(texto, 180)) {
-      if (miGeneracion !== generacionVoz) return "cancelado"; // otra voz tomó el control
-      const control = new AbortController();
-      const seguro = setTimeout(() => control.abort(), 10000);
-      let r = await fetch(base + "/tts?texto=" + encodeURIComponent(frag), { signal: control.signal });
-      clearTimeout(seguro);
-      // reintento ante errores pasajeros del servidor (429/5xx)
-      if (!r.ok && (r.status >= 500 || r.status === 429)) {
-        await new Promise((d) => setTimeout(d, 400));
-        r = await fetch(base + "/tts?texto=" + encodeURIComponent(frag));
-      }
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      buffers.push(await ctx.decodeAudioData(await r.arrayBuffer()));
-    }
-    if (!buffers.length) return false;
-    if (miGeneracion !== generacionVoz) return "cancelado";
-    // 2) UN solo buffer continuo: reproducción sin huecos ni solapes
-    const continuo = unirBuffers(ctx, buffers);
-    const fuente = ctx.createBufferSource();
-    fuente.buffer = continuo;
-    fuente.playbackRate.value = ajustes.velocidad || 1; // la velocidad del usuario también aplica aquí
-    fuente.connect(ctx.destination);
-    fuenteVoz = fuente;
-    await new Promise((res) => {
-      let hecho = false;
-      const fin = () => {
-        if (hecho) return;
-        hecho = true;
-        clearTimeout(tiempo);
-        res();
-      };
-      // macOS/Safari a veces NO dispara onended: temporizador de seguridad
-      const tiempo = setTimeout(fin, continuo.duration * 1000 + 300);
-      fuente.onended = fin;
-      fuente.start();
+    const urls = partirTexto(texto, 180).map(
+      (p) => base + "/tts?texto=" + encodeURIComponent(p)
+    );
+    if (!urls.length) return false;
+    const audios = urls.map((u) => {
+      const a = new Audio();
+      a.preload = "auto";
+      a.src = u;
+      a.playbackRate = ajustes.velocidad || 1; // la velocidad del usuario también aplica
+      return a;
     });
-    fuenteVoz = null;
-    return true;
+    // precargar TODO antes de sonar
+    const listos = await Promise.all(audios.map((a) => new Promise((res) => {
+      if (a.readyState >= 2) return res(true);
+      a.addEventListener("canplay", () => res(true), { once: true });
+      a.addEventListener("error", () => res(false), { once: true });
+      setTimeout(() => res(a.readyState >= 2), 8000); // nunca quedarse esperando
+    })));
+    if (miGeneracion !== generacionVoz) return "cancelado";
+    if (listos.some((ok) => !ok)) throw new Error("audio no cargado");
+    // cadena de reproducción (ya precargados = casi sin hueco)
+    let fallo = false;
+    await new Promise((res) => {
+      let i = 0;
+      const siguiente = () => {
+        if (miGeneracion !== generacionVoz) return res();
+        if (i >= audios.length) return res();
+        const a = audios[i];
+        audioActual = a;
+        const d = isFinite(a.duration) ? a.duration : 15;
+        const seguro = setTimeout(() => {
+          if (audioActual === a) { audioActual = null; i++; siguiente(); }
+        }, d * 1000 + 800);
+        a.onended = () => {
+          clearTimeout(seguro);
+          audioActual = null;
+          i++;
+          siguiente();
+        };
+        a.onerror = () => {
+          clearTimeout(seguro);
+          audioActual = null;
+          fallo = true;
+          res();
+        };
+        a.play().catch(() => {
+          clearTimeout(seguro);
+          audioActual = null;
+          fallo = true;
+          res();
+        });
+      };
+      siguiente();
+    });
+    if (miGeneracion !== generacionVoz) return "cancelado";
+    return !fallo;
   } catch (e) {
     return false; // sin voz natural: vuelve a la voz local
   }
