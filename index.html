@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#00D4FF">
-<title>VIERNES · Asistente Personal</title>
+<meta name="theme-color" content="#05070A">
+<title>VIERNES · Asistente Personal · MARK IV</title>
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="manifest" href="manifest.webmanifest">
 <script src="https://cdn.tailwindcss.com"></script>
@@ -15,65 +15,109 @@
 
   :root {
     --cyan: #00D4FF;
-    --cyan-soft: rgba(0,212,255,.35);
-    --cyan-faint: rgba(0,212,255,.08);
-    --bg: #04070F;
+    --green: #00FF88;
+    --red: #FF4444;
+    --bg: #05070A;
+    --panel: rgba(10,14,22,.85);
+    --border: rgba(0,212,255,.18);
+    --text: #CDE9F5;
+    --muted: #6B7A8C;
   }
 
   body {
     font-family: 'Rajdhani', sans-serif;
-    color: #CFE9F5;
+    color: var(--text);
     background-color: var(--bg);
     background-image:
-      radial-gradient(ellipse at 50% -10%, rgba(0,212,255,.12), transparent 55%),
-      linear-gradient(rgba(0,212,255,.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0,212,255,.035) 1px, transparent 1px);
+      radial-gradient(ellipse at 50% -10%, rgba(0,212,255,.08), transparent 55%),
+      linear-gradient(rgba(0,212,255,.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,.025) 1px, transparent 1px);
     background-size: 100% 100%, 44px 44px, 44px 44px;
     overscroll-behavior-y: contain;
+    min-height: 100vh;
+    margin: 0;
   }
 
   .font-hud { font-family: 'Orbitron', sans-serif; }
   .font-mono2 { font-family: 'Share Tech Mono', monospace; }
 
-  /* ═══ MARCO HUD ═══ */
-  .hud-esquina { position: fixed; width: 26px; height: 26px; z-index: 50; pointer-events: none; opacity: .55; }
-  .hud-tl { top: 8px; left: 8px; border-top: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
-  .hud-tr { top: 8px; right: 8px; border-top: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
-  .hud-bl { bottom: 8px; left: 8px; border-bottom: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
-  .hud-br { bottom: 8px; right: 8px; border-bottom: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
-  .scanlines {
-    position: fixed; inset: 0; z-index: 40; pointer-events: none; opacity: .5;
-    background: repeating-linear-gradient(0deg, rgba(0,212,255,.025) 0 1px, transparent 1px 3px);
+  /* ═══ HEADER ═══ */
+  .hud-header {
+    position: sticky; top: 0; z-index: 60;
+    background: rgba(5,7,10,.94);
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(10px);
   }
+  .hud-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; padding: 8px 24px;
+  }
+  .hud-brand {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .hud-brand .logo { font-family: 'Orbitron', sans-serif; font-weight: 900; font-size: 1.6rem; letter-spacing: .05em; color: #ffffff; text-shadow: 0 0 16px rgba(0,212,255,.6); }
+  .hud-brand .sub { font-family: 'Share Tech Mono', monospace; font-size: 10px; color: var(--muted); letter-spacing: .1em; }
+  .hud-status {
+    display: flex; align-items: center; gap: 10px; background: rgba(0,212,255,.08);
+    border: 1px solid rgba(0,212,255,.25); border-radius: 8px; padding: 6px 12px; font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--green);
+  }
+  .hud-status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); animation: pulseDot 2s infinite; }
+  .hud-model { margin-left: 12px; color: var(--muted); font-size: 11px; }
+  .hud-clock { font-family: 'Share Tech Mono', monospace; font-size: 1.15rem; color: #ffffff; text-shadow: 0 0 10px rgba(0,212,255,.4); }
+  .hud-clock .date { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .hud-actions { display: flex; align-items: center; gap: 8px; }
+  .btn-mic {
+    background: #00D4FF; color: #000; border: none; border-radius: 8px; padding: 8px 18px;
+    font-family: 'Orbitron', sans-serif; font-weight: 800; font-size: 12px; cursor: pointer;
+    box-shadow: 0 0 20px rgba(0,212,255,.6); transition: all .2s;
+  }
+  .btn-mic.off { background: #1a1a1e; color: #666; box-shadow: none; border-color: #333; }
+  .btn-mic:hover { box-shadow: 0 0 30px rgba(0,212,255,.9); }
+  .btn-icon {
+    background: rgba(255,255,255,.08); border: 1px solid var(--border); border-radius: 6px;
+    width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+    color: var(--text); cursor: pointer; font-size: 13px; transition: all .2s;
+  }
+  .btn-icon:hover { background: rgba(0,212,255,.2); border-color: var(--cyan); }
 
-  .custom-scrollbar::-webkit-scrollbar { width: 5px; }
-  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-  .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,212,255,.3); border-radius: 2px; }
+  @keyframes pulseDot { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .5; transform: scale(1.2); } }
 
-  /* ═══ REACTOR DE ARCO (orbe) — HIPER REALISTA ═══ */
-  .orb-wrap { animation: flotar 7s ease-in-out infinite; }
+  /* ═══ MAIN LAYOUT ═══ */
+  .app-main {
+    display: grid;
+    grid-template-columns: 340px 1fr 300px;
+    grid-template-rows: 60px 1fr;
+    gap: 0; height: 100vh;
+  }
+  .app-main > .panel { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+
+  /* ═══ PANEL IZQUIERDO (ORBE) ═══ */
+  .panel-left {
+    background: rgba(5,7,10,.7);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 30px 20px; position: relative; overflow: hidden;
+  }
+  .panel-left::before {
+    content: ""; position: absolute; inset: -20%; border-radius: 50%;
+    background: radial-gradient(circle, rgba(0,212,255,.1), transparent 70%);
+    animation: pulsePanel 6s ease-in-out infinite; pointer-events: none;
+  }
+  @keyframes pulsePanel { 0%,100% { transform: scale(1); opacity: .4; } 50% { transform: scale(1.1); opacity: .2; } }
+
+  .orb-wrap-left { animation: flotar 7s ease-in-out infinite; }
   @keyframes flotar { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-12px) scale(1.02); } }
 
   .orb {
-    --glow: rgba(100,116,139,.35);
-    width: 360px; height: 360px; position: relative; cursor: pointer; user-select: none;
-    transition: all .5s cubic-bezier(.4,0,.2,1);
-    filter: drop-shadow(0 0 8px rgba(0,0,0,.6));
+    --glow: rgba(0,255,136,.35);
+    width: 280px; height: 280px; position: relative; cursor: pointer; user-select: none;
+    transition: all .5s cubic-bezier(.4,0,.2,1); filter: drop-shadow(0 0 8px rgba(0,0,0,.6));
   }
-  .orb.detenido   { --glow: rgba(90,100,110,.4);   filter: drop-shadow(0 0 10px rgba(0,0,0,.5)); }
-  .orb.escuchando { --glow: rgba(0,212,255,.95);   filter: drop-shadow(0 0 30px rgba(0,212,255,.6)); }
-  .orb.activado   { --glow: rgba(200,246,255,1);    filter: drop-shadow(0 0 50px rgba(0,212,255,.9)); }
-  .orb.hablando   { --glow: rgba(52,255,178,.95);   filter: drop-shadow(0 0 40px rgba(52,255,178,.7)); }
+  .orb.detenido { --glow: rgba(90,100,110,.35); filter: drop-shadow(0 0 10px rgba(0,0,0,.5)); }
+  .orb.escuchando { --glow: rgba(0,212,255,.95); filter: drop-shadow(0 0 30px rgba(0,212,255,.6)); }
+  .orb.activado { --glow: rgba(200,246,255,1); filter: drop-shadow(0 0 50px rgba(0,212,255,.9)); }
+  .orb.hablando { --glow: rgba(0,255,136,.95); filter: drop-shadow(0 0 40px rgba(0,255,136,.7)); }
 
-  /* Capa de neón exterior (bloom) */
-  .orb-neon {
-    position: absolute; inset: -24px; border-radius: 50%;
-    background: radial-gradient(circle, var(--glow) 0%, transparent 70%);
-    opacity: 0; transition: opacity .5s;
-    animation: pulso 4s ease-in-out infinite;
-    pointer-events: none;
-    z-index: -1;
-  }
+  .orb-neon { position: absolute; inset: -24px; border-radius: 50%; background: radial-gradient(circle, var(--glow) 0%, transparent 70%); opacity: 0; transition: opacity .5s; animation: pulso 4s ease-in-out infinite; pointer-events: none; z-index: -1; }
   .orb:not(.detenido) .orb-neon { opacity: .7; }
   @keyframes pulso { 0%,100% { transform: scale(1); opacity: .6; } 50% { transform: scale(1.15); opacity: .3; } }
 
@@ -82,12 +126,6 @@
   .orb.detenido .ripple { animation-play-state: paused; }
   @keyframes ripple { 0% { transform: scale(1); opacity: .5; } 100% { transform: scale(2.2); opacity: 0; } }
 
-  /* Partículas flotantes (polvo estelar) */
-  .particula {
-    position: absolute; border-radius: 50%; background: var(--glow);
-    pointer-events: none; z-index: 0; opacity: 0;
-  }
-
   .ticks {
     position: absolute; inset: -22px; border-radius: 50%; pointer-events: none;
     background: repeating-conic-gradient(from 0deg, var(--glow) 0deg 1deg, transparent 1deg 7deg);
@@ -95,7 +133,6 @@
             mask: radial-gradient(circle, transparent 58%, black 59%, black 64%, transparent 65%);
     animation: girar 50s linear infinite;
   }
-
   .anillo { position: absolute; border-radius: 50%; pointer-events: none; }
   .a1 { inset: 0; border: 2px dashed var(--glow); animation: girar 20s linear infinite; opacity: .6; }
   .a2 { inset: 34px; border: 2px dotted var(--glow); animation: girar 14s linear infinite reverse; opacity: .5; }
@@ -113,209 +150,205 @@
   .orb.activado .a1 { animation-duration: 3.5s; }
   .orb.activado .a2 { animation-duration: 2.8s; }
 
-  /* Núcleo con efecto vidrio/cristal */
   .nucleo {
     position: absolute; inset: 116px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
-    background: radial-gradient(circle at 40% 35%,
-      rgba(255,255,255,.15) 0%,
-      var(--glow-suave) 35%,
-      rgba(0,0,0,.4) 75%);
+    background: radial-gradient(circle at 40% 35%, rgba(255,255,255,.15) 0%, var(--glow-suave) 35%, rgba(0,0,0,.4) 75%);
     border: 1px solid rgba(255,255,255,.2);
-    box-shadow:
-      inset 0 0 40px var(--glow-suave),
-      0 0 50px var(--glow-suave),
-      inset 0 2px 0 rgba(255,255,255,.4);
-    transition: all .4s;
-    overflow: hidden;
-    backdrop-filter: blur(8px);
+    box-shadow: inset 0 0 40px var(--glow-suave), 0 0 50px var(--glow-suave), inset 0 2px 0 rgba(255,255,255,.4);
+    transition: all .4s; overflow: hidden; backdrop-filter: blur(8px);
   }
   .brillo {
     position: absolute; inset: -50%;
-    background: conic-gradient(from 0deg,
-      transparent 0deg,
-      rgba(255,255,255,.5) 25deg,
-      transparent 60deg,
-      rgba(255,255,255,.3) 120deg,
-      transparent 180deg);
-    animation: girar 8s linear infinite;
-    pointer-events: none;
+    background: conic-gradient(from 0deg, transparent 0deg, rgba(255,255,255,.5) 25deg, transparent 60deg, rgba(255,255,255,.3) 120deg, transparent 180deg);
+    animation: girar 8s linear infinite; pointer-events: none;
   }
   .orb-label {
-    position: relative; z-index: 2;
-    font-family: 'Orbitron', sans-serif;
-    font-weight: 800;
-    font-size: 17px;
-    letter-spacing: .15em;
-    color: #ffffff;
+    position: relative; z-index: 2; font-family: 'Orbitron', sans-serif; font-weight: 800;
+    font-size: 17px; letter-spacing: .15em; color: #ffffff;
     text-shadow: 0 0 14px var(--glow), 0 0 30px var(--glow-suave), 0 0 50px var(--glow);
-    transition: all .4s;
-    white-space: nowrap;
-    user-select: none;
+    transition: all .4s; white-space: nowrap; user-select: none;
     filter: drop-shadow(0 0 6px rgba(0,0,0,.8));
   }
-  .orb.activado .orb-label { color: #ffffff; text-shadow: 0 0 18px #fff, 0 0 40px var(--glow); }
-  .orb.hablando .orb-label { color: #ffffff; text-shadow: 0 0 18px #5cffb2, 0 0 40px rgba(52,255,178,.8); }
-
   .orb.hablando .nucleo { animation: latidoNucleo 1.1s infinite; }
   @keyframes latidoNucleo {
     0%,100% { transform: scale(1); box-shadow: inset 0 0 30px var(--glow-suave), 0 0 36px var(--glow-suave); }
     50% { transform: scale(1.03); box-shadow: inset 0 0 50px var(--glow-suave), 0 0 60px var(--glow-suave); }
   }
-
   @keyframes girar { to { transform: rotate(360deg); } }
 
-  /* ═══ PANEL HUD ═══ */
-  .panel {
-    background: rgba(6,14,26,.75);
-    border: 1px solid rgba(0,212,255,.22);
-    box-shadow: 0 0 24px rgba(0,212,255,.06), inset 0 0 40px rgba(0,212,255,.03);
-    backdrop-filter: blur(6px);
-    position: relative;
-  }
-  .panel::before, .panel::after {
-    content: ""; position: absolute; width: 14px; height: 14px; pointer-events: none;
-  }
-  .panel::before { top: -1px; left: -1px; border-top: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
-  .panel::after { bottom: -1px; right: -1px; border-bottom: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
-
-  .label-hud {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px; letter-spacing: .25em; text-transform: uppercase;
-    color: rgba(0,212,255,.75);
+  .orb-info {
+    margin-top: 20px; text-align: center; font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--muted); letter-spacing: .1em;
   }
 
-  .msg-user {
-    background: linear-gradient(135deg, rgba(0,212,255,.16), rgba(0,212,255,.06));
-    border: 1px solid rgba(0,212,255,.4);
-    color: #E6F7FF;
+  .bottom-controls {
+    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 12px; align-items: center;
   }
-  .msg-ia {
-    background: rgba(8,18,32,.85);
-    border: 1px solid rgba(0,212,255,.25);
+  .btn-orb {
+    width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--cyan);
+    background: rgba(0,212,255,.12); color: var(--cyan); font-size: 20px;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .2s;
   }
+  .btn-orb:hover { background: rgba(0,212,255,.25); box-shadow: 0 0 20px rgba(0,212,255,.5); }
+  .btn-small {
+    background: rgba(255,255,255,.06); border: 1px solid var(--border); border-radius: 6px;
+    width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+    color: var(--text); font-size: 13px; cursor: pointer;
+  }
+  .btn-small:hover { background: rgba(0,212,255,.15); border-color: var(--cyan); }
 
-  .chip {
-    font-family: 'Share Tech Mono', monospace; font-size: 11px;
-    padding: 6px 12px; border-radius: 2px;
-    border: 1px solid rgba(0,212,255,.35); color: #9BDFFF;
-    background: rgba(0,212,255,.05); transition: all .15s;
+  /* ═══ PANEL CENTRO (TRANSMISIÓN) ═══ */
+  .panel-center {
+    background: rgba(5,7,10,.75);
+    display: flex; flex-direction: column;
   }
-  .chip:hover { background: rgba(0,212,255,.15); color: #fff; box-shadow: 0 0 12px rgba(0,212,255,.3); }
-  .chip:active { transform: scale(.95); }
-
-  .btn-hud {
-    font-family: 'Orbitron', sans-serif; font-size: 10px; letter-spacing: .15em;
-    padding: 8px 10px; border-radius: 2px;
-    border: 1px solid rgba(0,212,255,.4); color: #BDEFFF;
-    background: rgba(0,212,255,.07); transition: all .15s;
+  .panel-header {
+    background: rgba(0,0,0,.4); border-bottom: 1px solid var(--border);
+    padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--cyan); letter-spacing: .15em;
   }
-  .btn-hud:hover { background: rgba(0,212,255,.18); color: #fff; box-shadow: 0 0 14px rgba(0,212,255,.35); }
-  .btn-hud:active { transform: scale(.95); }
+  .panel-header .badge { background: rgba(0,212,255,.15); border: 1px solid var(--cyan); color: var(--cyan); padding: 2px 8px; border-radius: 4px; font-size: 10px; }
+  .panel-header .turns { color: var(--muted); }
 
-  input, select {
-    background: rgba(4,10,20,.8) !important;
-    border: 1px solid rgba(0,212,255,.3) !important;
-    color: #DFF4FF !important;
-    font-family: 'Rajdhani', sans-serif !important;
+  .chat-box {
+    flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px;
   }
-  input:focus, select:focus {
-    outline: none; border-color: var(--cyan) !important;
-    box-shadow: 0 0 14px rgba(0,212,255,.35) !important;
+  .msg {
+    display: flex; gap: 12px; animation: aparecer .35s ease-out;
   }
-  input[type=range] { accent-color: var(--cyan); }
-
-  .cursor-parpadea::after { content: "▌"; animation: parpadeo 1s steps(1) infinite; color: var(--cyan); }
-  @keyframes parpadeo { 50% { opacity: 0; } }
-
   @keyframes aparecer { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-  .mensaje { animation: aparecer .3s ease-out; }
-
-  .typing-dots span { display: inline-block; width: 5px; height: 5px; margin: 0 2px; background: var(--cyan); border-radius: 50%; animation: rebote 1.2s infinite ease-in-out; }
-  .typing-dots span:nth-child(1){ animation-delay: -.32s; } .typing-dots span:nth-child(2){ animation-delay: -.16s; }
-  @keyframes rebote { 0%,80%,100%{ transform: scale(0); } 40%{ transform: scale(1); } }
-
-  @keyframes latido { 0%,100%{ transform: scale(1);} 50%{ transform: scale(1.05);} }
-  .latido { animation: latido 1.4s infinite; }
-
-  /* ═══ BOTÓN FLOTANTE DE AJUSTES ═══ */
-  .fab-settings {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    background: rgba(0,212,255,.12);
-    border: 1px solid rgba(0,212,255,.5);
-    color: #00D4FF;
-    font-size: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    z-index: 100;
-    box-shadow: 0 0 20px rgba(0,212,255,.3);
-    transition: all .2s;
+  .msg-user { justify-content: flex-end; }
+  .msg-ia { justify-content: flex-start; }
+  .bubble {
+    max-width: 78%; padding: 12px 16px; border-radius: 12px; font-size: 14px; line-height: 1.5;
+    border: 1px solid rgba(255,255,255,.08);
   }
-  .fab-settings:hover {
-    background: rgba(0,212,255,.25);
-    box-shadow: 0 0 30px rgba(0,212,255,.6);
-    transform: scale(1.05);
+  .msg-user .bubble {
+    background: linear-gradient(135deg, rgba(0,212,255,.16), rgba(0,212,255,.06));
+    border-color: rgba(0,212,255,.4); color: #E6F7FF;
   }
-  .fab-settings:active { transform: scale(0.92); }
-
-  .settings-panel {
-    position: fixed;
-    bottom: 90px;
-    right: 24px;
-    width: 320px;
-    background: rgba(6,14,26,.92);
-    border: 1px solid rgba(0,212,255,.22);
-    border-radius: 8px;
-    padding: 16px;
-    z-index: 100;
-    box-shadow: 0 0 40px rgba(0,212,255,.15);
-    backdrop-filter: blur(8px);
+  .msg-ia .bubble {
+    background: rgba(8,18,32,.85); border-color: rgba(0,212,255,.25); color: var(--text);
   }
-  .settings-panel.hidden { display: none; }
+  .msg-avatar {
+    width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--cyan);
+    background: rgba(0,212,255,.1); display: flex; align-items: center; justify-content: center;
+    font-size: 14px; color: var(--cyan); flex-shrink: 0;
+  }
+  .msg-time { font-family: 'Share Tech Mono', monospace; font-size: 10px; color: var(--muted); margin-top: 4px; text-align: center; }
+  .msg-user .msg-time { text-align: right; margin-left: auto; }
 
-  @media (max-width: 640px) {
-    .orb { width: 240px; height: 240px; }
-    .nucleo { inset: 71px; } .a2 { inset: 21px; } .a3 { inset: 41px; }
-    .barrido { inset: 59px; } .ticks { inset: -14px; }
-    .orb-label { font-size: 12px; letter-spacing: .11em; }
+  .input-area {
+    background: rgba(0,0,0,.4); border-top: 1px solid var(--border);
+    padding: 14px 20px; display: flex; align-items: center; gap: 10px;
+  }
+  .input-area input {
+    flex: 1; background: rgba(4,10,20,.8); border: 1px solid var(--border);
+    color: #DFF4FF; padding: 10px 14px; border-radius: 8px; font-family: 'Rajdhani', sans-serif; font-size: 14px;
+  }
+  .input-area input:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 14px rgba(0,212,255,.35); }
+  .input-area .btn-send {
+    background: rgba(0,212,255,.12); border: 1px solid var(--cyan); color: #fff;
+    width: 42px; height: 42px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all .2s;
+  }
+  .input-area .btn-send:hover { background: rgba(0,212,255,.25); }
+
+  /* ═══ PANEL DERECHO (VISIÓN / TELEMETRÍA / REGISTRO) ═══ */
+  .panel-right {
+    background: rgba(5,7,10,.7);
+    display: flex; flex-direction: column;
+  }
+  .panel-section {
+    background: rgba(0,0,0,.35); border-bottom: 1px solid var(--border);
+    padding: 14px 18px;
+  }
+  .panel-section:last-child { border-bottom: none; }
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--cyan); letter-spacing: .1em; margin-bottom: 12px;
+  }
+  .section-header .badge {
+    background: rgba(0,212,255,.1); border: 1px solid var(--cyan); color: var(--cyan);
+    padding: 1px 6px; border-radius: 4px; font-size: 10px;
   }
 
-  /* ═══ CONTEXTO VISUAL — TARJETAS CON IMÁGENES E ICONOS ═══ */
+  /* VISIÓN ÓPTICA */
+  .vision-box {
+    background: rgba(0,0,0,.5); border: 1px dashed var(--border); border-radius: 8px;
+    padding: 16px; text-align: center; margin-bottom: 10px;
+  }
+  .vision-empty {
+    width: 100%; height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--muted); font-family: 'Share Tech Mono', monospace; font-size: 11px;
+  }
+  .vision-empty i { font-size: 34px; margin-bottom: 8px; color: var(--muted); }
+  .vision-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .vision-btn {
+    background: rgba(0,212,255,.08); border: 1px solid rgba(0,212,255,.25); color: var(--cyan);
+    padding: 6px 8px; border-radius: 4px; font-family: 'Share Tech Mono', monospace; font-size: 10px; cursor: pointer;
+  }
+  .vision-btn:hover { background: rgba(0,212,255,.2); }
+  .vision-toggle {
+    display: flex; align-items: center; gap: 8px; margin-top: 8px;
+    font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text);
+  }
+  .vision-toggle input { accent-color: var(--cyan); }
+
+  /* TELEMETRÍA */
+  .tele-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.04); font-family: 'Share Tech Mono', monospace; font-size: 11px; }
+  .tele-row:last-child { border-bottom: none; }
+  .tele-row .label { color: var(--muted); }
+  .tele-row .val { color: var(--cyan); font-weight: 700; }
+  .tele-row .val.warn { color: #FFB300; }
+  .tele-row .val.activa { color: var(--green); }
+
+  .audio-meter {
+    height: 40px; background: rgba(0,0,0,.4); border-radius: 6px; overflow: hidden;
+    display: flex; align-items: flex-end; gap: 3px; padding: 4px;
+  }
+  .audio-bar {
+    width: 4px; background: var(--cyan); border-radius: 2px;
+    animation: audioBounce 1.2s ease-in-out infinite;
+    box-shadow: 0 0 8px var(--cyan);
+  }
+  .audio-bar:nth-child(2) { animation-delay: .2s; }
+  .audio-bar:nth-child(3) { animation-delay: .4s; }
+  .audio-bar:nth-child(4) { animation-delay: .6s; }
+  .audio-bar:nth-child(5) { animation-delay: .8s; }
+  @keyframes audioBounce { 0%,100% { height: 20%; } 50% { height: 90%; } }
+
+  /* REGISTRO */
+  .log-box {
+    height: 140px; overflow-y: auto; background: rgba(0,0,0,.5);
+    border-radius: 6px; padding: 10px; font-family: 'Share Tech Mono', monospace; font-size: 10px; line-height: 1.5;
+  }
+  .log-entry { margin: 4px 0; padding: 4px 6px; border-radius: 4px; background: rgba(255,255,255,.03); }
+  .log-entry .time { color: var(--muted); margin-right: 8px; }
+  .log-entry.error { color: var(--red); border-left: 2px solid var(--red); padding-left: 6px; }
+  .log-entry.ok { color: var(--green); }
+  .log-entry.warn { color: #FFB300; }
+
+  .btn-log-clear {
+    margin-top: 8px; background: transparent; border: 1px solid var(--red); color: var(--red);
+    padding: 4px 10px; border-radius: 4px; font-family: 'Share Tech Mono', monospace; font-size: 10px; cursor: pointer;
+  }
+  .btn-log-clear:hover { background: rgba(255,68,68,.15); }
+
+  /* ═══ CONTEXTO VISUAL (tarjetas flotantes) ═══ */
   .contexto-visual {
-    position: fixed;
-    top: 130px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 92%;
-    max-width: 720px;
-    z-index: 95;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity .5s ease, transform .5s ease;
+    position: fixed; top: 140px; left: 50%; transform: translateX(-50%);
+    width: 92%; max-width: 720px; z-index: 100; pointer-events: none;
+    opacity: 0; transition: opacity .5s ease, transform .5s ease;
   }
   .contexto-visual.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
   .contexto-visual.oculto { opacity: 0; transform: translateX(-50%) translateY(-20px); }
 
   .tarjeta-visual {
-    background: rgba(6,14,26,.96);
-    border: 1px solid rgba(0,212,255,.4);
-    border-radius: 20px;
-    padding: 24px 28px;
-    box-shadow: 0 0 60px rgba(0,212,255,.2), inset 0 0 80px rgba(0,212,255,.08);
-    backdrop-filter: blur(12px);
-    display: flex;
-    gap: 24px;
-    align-items: center;
-    animation: aparecerVisual .6s cubic-bezier(.34,1.56,.64,1);
-    position: relative;
-    overflow: hidden;
+    background: rgba(6,14,26,.96); border: 1px solid rgba(0,212,255,.4);
+    border-radius: 20px; padding: 22px 26px; box-shadow: 0 0 60px rgba(0,212,255,.2), inset 0 0 80px rgba(0,212,255,.08);
+    backdrop-filter: blur(12px); display: flex; gap: 22px; align-items: center;
+    animation: aparecerVisual .6s cubic-bezier(.34,1.56,.64,1); position: relative; overflow: hidden;
   }
   .tarjeta-visual::before {
     content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px;
@@ -323,26 +356,14 @@
     border-radius: 20px 20px 0 0;
   }
   .icono-visual {
-    width: 96px; height: 96px; border-radius: 50%;
-    background: rgba(0,212,255,.18);
-    border: 2px solid rgba(0,212,255,.55);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 44px; color: var(--color-icono, #00D4FF);
-    flex-shrink: 0;
+    width: 88px; height: 88px; border-radius: 50%;
+    background: rgba(0,212,255,.18); border: 2px solid rgba(0,212,255,.55);
+    display: flex; align-items: center; justify-content: center; font-size: 40px;
+    color: var(--color-icono, #00D4FF); flex-shrink: 0;
     box-shadow: 0 0 30px var(--color-sombra, rgba(0,212,255,.4));
-    animation: flotarIcono 3s ease-in-out infinite;
-    position: relative;
-    z-index: 2;
-  }
-  .icono-visual::after {
-    content: ""; position: absolute; inset: -8px; border-radius: 50%;
-    border: 1px solid rgba(255,255,255,.3);
-    animation: girarLuz 4s linear infinite;
-    opacity: .6;
+    animation: flotarIcono 3s ease-in-out infinite; position: relative; z-index: 2;
   }
   @keyframes flotarIcono { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
-  @keyframes girarLuz { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
   .contenido-visual { flex: 1; position: relative; z-index: 2; }
   .etiqueta-visual {
     font-family: 'Share Tech Mono', monospace; font-size: 10px; letter-spacing: .25em;
@@ -350,220 +371,283 @@
     display: block; font-weight: 700;
   }
   .titulo-visual {
-    font-family: 'Orbitron', sans-serif; font-size: 1.7rem; font-weight: 900;
-    color: #ffffff; margin: 0 0 10px 0; line-height: 1.15;
+    font-family: 'Orbitron', sans-serif; font-size: 1.6rem; font-weight: 900; color: #ffffff;
+    margin: 0 0 10px 0; line-height: 1.15;
     text-shadow: 0 0 14px var(--color-acento, rgba(0,212,255,.5));
   }
   .texto-visual {
-    font-family: 'Rajdhani', sans-serif; font-size: 1.15rem; color: #CFE9F5;
-    margin: 0; line-height: 1.6;
+    font-family: 'Rajdhani', sans-serif; font-size: 1.1rem; color: #CFE9F5; margin: 0; line-height: 1.6;
   }
-  .texto-visual.destacado { font-size: 1.5rem; font-weight: 800; color: #ffffff; }
-
-  /* Imagen contextual dentro de la tarjeta */
-  .imagen-visual {
-    width: 120px; height: 120px; border-radius: 16px;
-    object-fit: cover; flex-shrink: 0;
-    border: 2px solid rgba(255,255,255,.2);
-    box-shadow: 0 0 20px rgba(0,0,0,.5);
-    animation: pulseImg 2.5s ease-in-out infinite;
-    position: relative; z-index: 2;
-  }
-  @keyframes pulseImg { 0%,100% { transform: scale(1); box-shadow: 0 0 0 rgba(0,212,255,.4); } 50% { transform: scale(1.05); box-shadow: 0 0 20px rgba(0,212,255,.6); } }
-
-  .clima-grande { font-size: 3rem; font-weight: 900; }
-  .clima-detalle { font-size: 1.1rem; color: #9BDFFF; margin-top: 6px; }
+  .texto-visual.destacado { font-size: 1.45rem; font-weight: 800; color: #ffffff; }
 
   @keyframes aparecerVisual { from { opacity: 0; transform: translateY(25px); } to { opacity: 1; transform: translateY(0); } }
 
-  .contextual-chip {
-    display: inline-block; padding: 5px 14px; border-radius: 24px;
-    font-family: 'Share Tech Mono', monospace; font-size: 10px;
-    background: rgba(0,212,255,.15); border: 1px solid rgba(0,212,255,.35);
-    color: var(--color-acento, #00D4FF); margin-bottom: 10px;
-    font-weight: 700;
-  }
-
-  /* Fondo dinámico según contexto */
+  /* Fondos dinámicos */
   .fondo-dinamico {
-    position: fixed; inset: 0; z-index: -1;
-    opacity: 0; transition: opacity .6s ease;
+    position: fixed; inset: 0; z-index: -1; opacity: 0; transition: opacity .6s ease;
     background-size: cover; background-position: center;
   }
-  .fondo-dinamico.activo { opacity: .18; }
+  .fondo-dinamico.activo { opacity: .16; }
+
+  @media (max-width: 1024px) {
+    .app-main { grid-template-columns: 280px 1fr 260px; }
+    .orb { width: 220px; height: 220px; }
+  }
+  @media (max-width: 768px) {
+    .app-main { grid-template-columns: 1fr; grid-template-rows: 60px auto 1fr; }
+    .panel-left { grid-row: 2; border-right: none; border-bottom: 1px solid var(--border); }
+    .panel-right { grid-row: 3; border-right: none; }
+    .panel-right { display: none; }
+  }
 </style>
 <script src="config.js"></script>
   <script src="config.local.js"></script>
 </head>
 <body class="min-h-screen flex flex-col">
 
-<!-- MARCO HUD -->
-<div class="hud-esquina hud-tl"></div><div class="hud-esquina hud-tr"></div>
-<div class="hud-esquina hud-bl"></div><div class="hud-esquina hud-br"></div>
-<div class="scanlines"></div>
-
-<!-- ═══ HEADER ═══ -->
-<header class="sticky top-0 z-40 border-b" style="background: rgba(4,7,15,.9); border-color: rgba(0,212,255,.25); backdrop-filter: blur(8px);">
-  <div class="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <img src="icon.svg" alt="VIERNES" class="w-9 h-9" style="filter: drop-shadow(0 0 8px rgba(0,212,255,.6));">
-      <div>
-        <div class="font-hud font-bold tracking-[.3em] text-white text-sm" style="text-shadow: 0 0 12px rgba(0,212,255,.8);">VIERNES</div>
-        <div class="label-hud">Asistente personal · contexto visual</div>
-      </div>
-    </div>
-    <div id="statusPill" class="panel flex items-center gap-2 px-3 py-1.5 rounded-sm">
-      <span id="statusDot" class="w-2 h-2 rounded-full bg-slate-500"></span>
-      <span id="statusLabel" class="font-mono2 text-[11px] tracking-widest text-cyan-200">SISTEMA DETENIDO</span>
-    </div>
-  </div>
-</header>
-
-<main class="flex-grow w-full max-w-3xl mx-auto px-4 flex flex-col items-center justify-center gap-6 py-6">
-
-  <!-- ═══ REACTOR ═══ -->
-  <div class="flex flex-col items-center gap-4 pt-4">
-    <div class="orb-wrap">
-      <div id="orb" class="orb detenido" onclick="toggleEscucha()" title="Activar / desactivar modo siempre escuchando">
-        <div class="ripple"></div>
-        <div class="ripple r2"></div>
-        <div class="ticks"></div>
-        <div class="anillo a1"></div>
-        <div class="anillo a2"></div>
-        <div class="anillo a3"></div>
-        <div class="barrido"></div>
-        <div class="nucleo">
-          <div class="brillo"></div>
-          <div id="orbTexto" class="orb-label">VIERNES</div>
-        </div>
-        <div id="particulas"></div>
-      </div>
-    </div>
-    <div class="text-center">
-      <div id="estadoTexto" class="font-hud text-sm tracking-widest text-cyan-100">TOCA EL REACTOR PARA ACTIVAR</div>
-      <div id="estadoSub" class="label-hud mt-1">PALABRA MÁGICA: <b class="text-cyan-300">"VIERNES"</b></div>
-    </div>
-  </div>
-</main>
-
-<!-- ═══ FONDOS DINÁMICOS POR CONTEXTO ═══ -->
+<!-- ═══ FONDOS DINÁMICOS ═══ -->
 <div id="fondoClima" class="fondo-dinamico" style="background-image: url('https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80');"></div>
 <div id="fondoEspacio" class="fondo-dinamico" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d57bd22aa?auto=format&fit=crop&w=1200&q=80');"></div>
 <div id="fondoTecnologia" class="fondo-dinamico" style="background-image: url('https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80');"></div>
 <div id="fondoNaturaleza" class="fondo-dinamico" style="background-image: url('https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1200&q=80');"></div>
 <div id="fondoNeutro" class="fondo-dinamico" style="background-image: url('https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1200&q=80');"></div>
 
-<!-- ═══ CONTEXTO VISUAL (se muestra al recibir respuesta) ═══ -->
-<div id="contextoVisual" class="contexto-visual oculto"></div>
-
-<footer class="w-full max-w-3xl mx-auto px-4 pb-5 flex flex-col items-center gap-4">
-
-  <!-- ═══ INPUT ═══ -->
-  <form onsubmit="enviarForm(event)" class="w-full flex items-center gap-2 pb-2">
-    <button type="button" onclick="hablarAhora()" id="btnPush" title="Hablar ahora (push-to-talk)"
-      class="shrink-0 p-3.5 rounded-sm text-white transition-all active:scale-95"
-      style="background: rgba(0,212,255,.12); border: 1px solid rgba(0,212,255,.5);">
-      <i class="fa-solid fa-microphone text-cyan-300"></i>
-    </button>
-    <input id="chatInput" type="text" placeholder="O escribe tu duda aquí…" autocomplete="off"
-      class="flex-grow min-w-0 px-4 py-3 rounded-sm text-sm transition-all">
-    <button type="submit" title="Enviar"
-      class="shrink-0 p-3.5 rounded-sm text-white transition-all active:scale-95"
-      style="background: rgba(0,212,255,.12); border: 1px solid rgba(0,212,255,.5);">
-      <i class="fa-solid fa-arrow-up text-cyan-300"></i>
-    </button>
-  </form>
-
-  <!-- Icono flotante de ajustes -->
-  <button id="btnAjustes" class="fab-settings" onclick="toggleAjustes()" title="Ajustes del sistema">
-    <i class="fa-solid fa-gear text-cyan-300"></i>
-  </button>
-
-  <!-- Panel de ajustes (oculto por defecto) -->
-  <div id="panelAjustes" class="settings-panel hidden">
-    <div class="flex justify-between items-center mb-3">
-      <div class="label-hud">AJUSTES DEL SISTEMA</div>
-      <button onclick="toggleAjustes()" class="text-cyan-400 hover:text-white">&times;</button>
+<!-- ═══ HEADER ═══ -->
+<header class="hud-header">
+  <div class="hud-bar">
+    <div class="hud-brand">
+      <div class="logo">VIERNES</div>
+      <div class="sub">ASISTENTE PERSONAL · MARK IV</div>
     </div>
-    <div class="space-y-4 text-xs">
-      <label class="flex items-center justify-between gap-3">
-        <span class="label-hud">🔊 Respuestas en voz</span>
-        <input type="checkbox" id="ajVoz" onchange="guardarAjustes()" checked class="w-4 h-4">
-      </label>
-      <label class="flex items-center justify-between gap-3">
-        <span class="label-hud">🌐 Voz natural (Edge neural)</span>
-        <input type="checkbox" id="ajVozNat" onchange="guardarAjustes()" checked class="w-4 h-4">
-      </label>
-      <label class="flex items-center justify-between gap-3">
-        <span class="label-hud">🎙️ Voz del sistema<br><span class="text-slate-500">elegir una desactiva la natural</span></span>
-        <select id="ajVozSel" onchange="elegirVozLocal()" class="px-2 py-1 rounded-sm text-xs w-52"></select>
-      </label>
-      <label class="flex items-center justify-between gap-3">
-        <span class="label-hud">⏩ Velocidad</span>
-        <input type="range" id="ajVel" min="0.7" max="1.6" step="0.1" value="1" onchange="guardarAjustes()" class="w-32">
-      </label>
-      <label class="flex items-center justify-between gap-3">
-        <span class="label-hud">📈 Tono <span class="text-slate-500">(voz del sistema)</span></span>
-        <input type="range" id="ajTono" min="0.6" max="1.8" step="0.05" value="1" onchange="guardarAjustes()" class="w-32">
-      </label>
-      <label class="flex items-center justify-between gap-3">
-        <span class="label-hud">🌎 Idioma de escucha</span>
-        <select id="ajLang" onchange="guardarAjustes(true)" class="px-2 py-1 rounded-sm text-xs">
-          <option value="es-MX">Español (México)</option>
-          <option value="es-ES">Español (España)</option>
-          <option value="es-US">Español (EE.UU.)</option>
-        </select>
-      </label>
-      <div class="flex gap-2 pt-2">
-        <button onclick="diagnosticar()" class="btn-hud flex-1"><i class="fa-solid fa-stethoscope mr-1"></i>PROBAR CONEXIÓN</button>
-        <button onclick="hablar('Hola, soy VIERNES. Tu asistente personal, a tus órdenes.')" class="btn-hud flex-1"><i class="fa-solid fa-volume-high mr-1"></i>PROBAR VOZ</button>
+    <div class="hud-status">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusLabel">SISTEMA DETENIDO</span>
+      <span class="hud-model" id="modelLabel">GROQ-4</span>
+    </div>
+    <div class="hud-clock">
+      <span id="clockTime">00:00:00</span>
+      <div class="date" id="clockDate">LUN, 01 ENE</div>
+    </div>
+    <div class="hud-actions">
+      <button id="btnMic" class="btn-mic" onclick="toggleMic()">MIC ON</button>
+      <button class="btn-icon" title="Ajustes" onclick="toggleAjustes()"><i class="fa-solid fa-gear"></i></button>
+      <button class="btn-icon" title="Ayuda" onclick="ayuda()"><i class="fa-solid fa-circle-question"></i></button>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ MAIN ═══ -->
+<div class="app-main">
+
+  <!-- PANEL IZQUIERDO -->
+  <div class="panel-left">
+    <div class="orb-wrap-left">
+      <div id="orb" class="orb detenido" onclick="toggleEscucha()" title="Activar / desactivar escucha">
+        <div class="orb-neon"></div>
+        <div class="ripple"></div>
+        <div class="ripple r2"></div>
+        <div class="ticks"></div>
+        <div class="anillo a1"></div>
+        <div class="anillo a2"></div>
+        <div class="anillo a3"></div>
+        <div class="anillo a4"></div>
+        <div class="barrido"></div>
+        <div class="nucleo">
+          <div class="brillo"></div>
+          <div id="orbTexto" class="orb-label">VIERNES</div>
+        </div>
       </div>
-      <div class="pt-2">
-        <button onclick="limpiarHistorial()" class="btn-hud w-full"><i class="fa-solid fa-trash mr-1"></i>BORRAR HISTORIAL</button>
+    </div>
+    <div class="orb-info">
+      <div>IA · GROK</div>
+      <div style="margin-top:4px;">VISIÓN</div>
+    </div>
+    <div class="bottom-controls">
+      <button id="btnPush" class="btn-orb" onclick="hablarAhora()" title="Hablar ahora"><i class="fa-solid fa-microphone"></i></button>
+      <button class="btn-small" title="Detener" onclick="detenerEscucha()"><i class="fa-solid fa-square"></i></button>
+      <button class="btn-small" title="¿Qué ves?" onclick="visionQueVes()"><i class="fa-solid fa-eye"></i></button>
+    </div>
+  </div>
+
+  <!-- PANEL CENTRO -->
+  <div class="panel-center">
+    <div class="panel-header">
+      <span>TRANSMISIÓN</span>
+      <span class="badge">16 TURNOS</span>
+      <span class="turns" id="turnsCount">0</span>
+    </div>
+    <div id="chatMessages" class="chat-box custom-scrollbar">
+      <!-- mensajes se agregan aquí -->
+    </div>
+    <form id="formTexto" class="input-area" onsubmit="enviarForm(event)">
+      <button type="button" onclick="hablarAhora()" class="btn-orb" style="width:42px;height:42px;font-size:18px;" title="Hablar ahora"><i class="fa-solid fa-microphone"></i></button>
+      <input id="chatInput" type="text" placeholder="Escribe una orden o haga una pregunta…" autocomplete="off">
+      <button type="submit" class="btn-send" title="Enviar"><i class="fa-solid fa-arrow-up"></i></button>
+    </form>
+  </div>
+
+  <!-- PANEL DERECHO -->
+  <div class="panel-right">
+    <!-- VISIÓN ÓPTICA -->
+    <div class="panel-section">
+      <div class="section-header">
+        <span>VISIÓN ÓPTICA</span>
+        <span class="badge" id="visionBadge">OFF</span>
       </div>
-      <div class="pt-2">
-        <button onclick="forzarActualizacion()" class="btn-hud w-full" title="Descarta la caché y recarga"><i class="fa-solid fa-arrows-rotate mr-1"></i>FORZAR ACTUALIZACIÓN</button>
+      <div class="vision-box" id="visionBox">
+        <div class="vision-empty">
+          <i class="fa-solid fa-image"></i>
+          <div>SIN SEÑAL</div>
+          <div style="font-size:9px; margin-top:4px;">Activa la cámara para darle ojos a VIERNES.</div>
+        </div>
+      </div>
+      <div class="vision-btns">
+        <button class="vision-btn" onclick="visionQueVes()">¿QUÉ VES?</button>
+        <button class="vision-btn" onclick="visionLeerTexto()">LEER TEXTO</button>
+      </div>
+      <div class="vision-btns">
+        <button class="vision-btn" onclick="visionIdentificar()">IDENTIFICAR</button>
+        <button class="vision-btn" onclick="visionTraducir()">TRADUCIR</button>
+      </div>
+      <label class="vision-toggle">
+        <input type="checkbox" id="visionAuto">
+        AJUSTAR IMAGEN EN CADA MENSAJE
+      </label>
+    </div>
+
+    <!-- TELEMETRÍA -->
+    <div class="panel-section">
+      <div class="section-header">
+        <span>TELEMETRÍA</span>
+        <span class="badge">SESSION</span>
+      </div>
+      <div class="tele-row"><span class="label">MODELO</span><span class="val" id="teleModelo">GROQ-4</span></div>
+      <div class="tele-row"><span class="label">TRANSPORTE</span><span class="val activa">PROXY LOCAL</span></div>
+      <div class="tele-row"><span class="label">LATENCIA</span><span class="val" id="teleLatencia">-</span></div>
+      <div class="tele-row"><span class="label">TOKENS</span><span class="val" id="teleTokens">-</span></div>
+      <div class="tele-row"><span class="label">BÚSQUEDA</span><span class="val activa">ACTIVA</span></div>
+      <div class="tele-row"><span class="label">VOZ</span><span class="val" id="teleVoz">XAI · EVE</span></div>
+      <div style="margin-top:10px;">
+        <div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:4px;">ENTRADA DE AUDIO</div>
+        <div class="audio-meter" id="audioMeter">
+          <div class="audio-bar"></div><div class="audio-bar"></div><div class="audio-bar"></div><div class="audio-bar"></div><div class="audio-bar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- REGISTRO -->
+    <div class="panel-section">
+      <div class="section-header">
+        <span>REGISTRO</span>
+        <button class="btn-log-clear" onclick="limpiarRegistro()">LIMPIAR</button>
+      </div>
+      <div id="logBox" class="log-box">
+        <div class="log-entry ok"><span class="time">[SISTEMA]</span> VIERNES MARK IV iniciado.</div>
       </div>
     </div>
   </div>
-</footer>
 
-<script src="viernes.js?v=18"></script>
+</div>
+
+<!-- CONTEXTO VISUAL -->
+<div id="contextoVisual" class="contexto-visual oculto"></div>
+
+<script src="viernes.js?v=21"></script>
 <script>
-  // Generador de partículas flotantes alrededor del orbe
-  (function(){
-    const cont = document.getElementById('particulas');
-    if(!cont) return;
-    for(let i=0;i<28;i++){
-      const p = document.createElement('div');
-      p.className = 'particula';
-      const t = Math.random()*6.28;
-      const r = 100 + Math.random()*120;
-      const x = Math.cos(t)*r;
-      const y = Math.sin(t)*r;
-      p.style.left = '50%'; p.style.top = '50%';
-      p.style.width = (2 + Math.random()*4) + 'px';
-      p.style.height = p.style.width;
-      p.style.opacity = Math.random()*.6 + .2;
-      p.style.transform = `translate(${x}px,${y}px)`;
-      p.style.transition = 'transform 6s linear, opacity 2s ease-in-out';
-      cont.appendChild(p);
-      setTimeout(()=>{
-        p.style.transform = `translate(${(x*1.5)}px,${(y*1.5)}px)`;
-        p.style.opacity = '0';
-      }, i*200);
-      setInterval(()=>{
-        const tt = Math.random()*6.28;
-        const rr = 80 + Math.random()*140;
-        p.style.transform = `translate(${Math.cos(tt)*rr}px,${Math.sin(tt)*rr}px)`;
-        p.style.opacity = Math.random()*.5 + .1;
-      }, 7000 + i*300);
-    }
-  })();
-
-  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+  // Reloj en tiempo real
+  function actualizarReloj() {
+    const ahora = new Date();
+    const h = ahora.getHours().toString().padStart(2,'0');
+    const m = ahora.getMinutes().toString().padStart(2,'0');
+    const s = ahora.getSeconds().toString().padStart(2,'0');
+    document.getElementById('clockTime').textContent = h + ':' + m + ':' + s;
+    const dias = ['DOM','LUN','MAR','MIE','JUE','VIE','SAB'];
+    const meses = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
+    document.getElementById('clockDate').textContent = dias[ahora.getDay()] + ', ' + ahora.getDate() + ' ' + meses[ahora.getMonth()];
   }
+  setInterval(actualizarReloj, 1000);
+  actualizarReloj();
+
+  // Audio meter simulado
+  setInterval(() => {
+    const bars = document.querySelectorAll('.audio-bar');
+    bars.forEach(b => { b.style.height = (20 + Math.random()*80) + '%'; });
+  }, 300);
+
+  // Registro de logs
+  window.agregarLog = function(texto, tipo='ok') {
+    const box = document.getElementById('logBox');
+    if (!box) return;
+    const ahora = new Date();
+    const h = ahora.getHours().toString().padStart(2,'0');
+    const m = ahora.getMinutes().toString().padStart(2,'0');
+    const s = ahora.getSeconds().toString().padStart(2,'0');
+    const div = document.createElement('div');
+    div.className = 'log-entry ' + tipo;
+    div.innerHTML = '<span class="time">[' + h + ':' + m + ':' + s + ']</span> ' + texto;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+  };
+
+  // Visión óptica simulada
+  window.visionActiva = false;
+  window.visionQueVes = function() {
+    agregarLog('Cámara solicitada: análisis de escena', 'warn');
+    const box = document.getElementById('visionBox');
+    box.innerHTML = '<div style="text-align:center;color:var(--cyan);font-family:\'Share Tech Mono\',monospace;font-size:11px;">ANÁLISIS EN PROGRESO…</div>';
+    setTimeout(() => {
+      box.innerHTML = '<div style="text-align:center;"><div style="font-size:28px;color:var(--green);">✓</div><div style="font-size:11px;color:var(--text);margin-top:6px;">ENTORNO INTERIOR DETECTADO</div><div style="font-size:10px;color:var(--muted);margin-top:4px;">Iluminación artificial · Superficies reflectantes</div></div>';
+      document.getElementById('visionBadge').textContent = 'ON';
+      document.getElementById('visionBadge').style.color = 'var(--green)';
+    }, 1500);
+  };
+  window.visionLeerTexto = function() { agregarLog('OCR: extrayendo texto visible', 'ok'); };
+  window.visionIdentificar = function() { agregarLog('Reconocimiento de objetos: iniciado', 'ok'); };
+  window.visionTraducir = function() { agregarLog('Traductor de idioma: listo', 'ok'); };
+
+  // Contador de turnos
+  window.turnos = 0;
+  window.incrementarTurno = function() {
+    window.turnos++;
+    const el = document.getElementById('turnsCount');
+    if (el) el.textContent = window.turnos;
+  };
+
+  // Toggle MIC
+  window.micEstado = true;
+  window.toggleMic = function() {
+    window.micEstado = !window.micEstado;
+    const btn = document.getElementById('btnMic');
+    if (window.micEstado) {
+      btn.classList.remove('off');
+      btn.textContent = 'MIC ON';
+      btn.style.background = '#00D4FF';
+      btn.style.color = '#000';
+    } else {
+      btn.classList.add('off');
+      btn.textContent = 'MIC OFF';
+      btn.style.background = '#1a1a1e';
+      btn.style.color = '#666';
+    }
+    agregarLog('Micrófono ' + (window.micEstado ? 'activado' : 'desactivado'), 'ok');
+  };
+
+  // Ayuda
+  window.ayuda = function() {
+    agregarLog('Comandos: hora, fecha, clima, notas, cálculos, temporizador', 'ok');
+  };
+
+  // Ajustes flotante
+  window.toggleAjustes = function() {
+    const panel = document.getElementById('panelAjustes');
+    if (panel) panel.classList.toggle('hidden');
+  };
+
+  // Limpiar registro
+  window.limpiarRegistro = function() {
+    const box = document.getElementById('logBox');
+    if (box) box.innerHTML = '<div class="log-entry ok"><span class="time">[SISTEMA]</span> Registro limpiado.</div>';
+  };
 </script>
 </body>
 </html>
