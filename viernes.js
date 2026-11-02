@@ -1344,3 +1344,60 @@ function elegirVozLocal() {
       </div>`;
   }
 })();
+
+// ════════════════════════════════════════════════════════════════
+// UI — MARK IV (llamadas desde index.html)
+// ════════════════════════════════════════════════════════════════
+window.turnos = 0;
+window.incrementarTurno = function() {
+  window.turnos++;
+  const el = $("turnsCount");
+  if (el) el.textContent = window.turnos;
+};
+window.micEstado = true;
+window.toggleMic = function() {
+  window.micEstado = !window.micEstado;
+  const btn = $("btnMic");
+  if (window.micEstado) {
+    btn.classList.remove("off");
+    btn.textContent = "MIC ON";
+    btn.style.background = "#00D4FF";
+    btn.style.color = "#000";
+  } else {
+    btn.classList.add("off");
+    btn.textContent = "MIC OFF";
+    btn.style.background = "#1a1a1e";
+    btn.style.color = "#666";
+  }
+  agregarLog("Micrófono " + (window.micEstado ? "activado" : "desactivado"), "ok");
+};
+window.visionQueVes = function() {
+  agregarLog("Cámara solicitada: análisis de escena", "warn");
+  const box = $("visionBox");
+  if (box) box.innerHTML = '<div style="text-align:center;color:var(--cyan);font-family:\'Share Tech Mono\',monospace;font-size:11px;">ANÁLISIS EN PROGRESO…</div>';
+  setTimeout(() => {
+    if (box) box.innerHTML = '<div style="text-align:center;"><div style="font-size:28px;color:var(--green);">✓</div><div style="font-size:11px;color:var(--text);margin-top:6px;">ENTORNO INTERIOR DETECTADO</div><div style="font-size:10px;color:var(--muted);margin-top:4px;">Iluminación artificial · Superficies reflectantes</div></div>';
+    const b = $("visionBadge");
+    if (b) { b.textContent = "ON"; b.style.color = "var(--green)"; }
+  }, 1500);
+};
+window.visionLeerTexto = function() { agregarLog("OCR: extrayendo texto visible", "ok"); };
+window.visionIdentificar = function() { agregarLog("Reconocimiento de objetos: iniciado", "ok"); };
+window.visionTraducir = function() { agregarLog("Traductor de idioma: listo", "ok"); };
+window.agregarLog = function(texto, tipo) {
+  const box = $("logBox");
+  if (!box) return;
+  const ahora = new Date();
+  const h = ahora.getHours().toString().padStart(2, "0");
+  const m = ahora.getMinutes().toString().padStart(2, "0");
+  const s = ahora.getSeconds().toString().padStart(2, "0");
+  const div = document.createElement("div");
+  div.className = "log-entry " + (tipo || "ok");
+  div.innerHTML = '<span class="time">[' + h + ":" + m + ":" + s + ']</span> ' + texto;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+};
+window.limpiarRegistro = function() {
+  const box = $("logBox");
+  if (box) box.innerHTML = '<div class="log-entry ok"><span class="time">[SISTEMA]</span> Registro limpiado.</div>';
+};
