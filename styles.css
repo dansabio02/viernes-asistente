@@ -34,7 +34,7 @@ body::before{content:"";position:fixed;inset:0;background:radial-gradient(ellips
 .power-btn svg{width:16px;height:16px;fill:var(--accent-2)}
 .power-btn.active{background:var(--accent-2);color:#000;box-shadow:0 0 20px var(--accent-2)}
 
-.layout{flex:1;display:grid;grid-template-columns:420px 1fr 330px;overflow:hidden}
+.layout{flex:1;display:grid;grid-template-columns:560px 1fr 330px;overflow:hidden}
 .stage{background:rgba(5,10,18,.6);border-right:1px solid var(--border);padding:24px;display:flex;flex-direction:column;align-items:center}
 .caption-box{background:rgba(0,0,0,.45);border:1px solid rgba(72,233,255,.18);border-radius:12px;padding:10px 16px;margin-bottom:16px;width:100%;max-width:460px}
 .caption-head{display:flex;align-items:center;gap:10px;font-family:'Share Tech Mono',monospace;font-size:.8rem;color:var(--accent-2);margin-bottom:6px}
@@ -56,7 +56,7 @@ body::before{content:"";position:fixed;inset:0;background:radial-gradient(ellips
 .stage-btn:hover{background:rgba(72,233,255,.15);border-color:var(--accent-2)}
 .stage-btn[disabled]{opacity:.45;cursor:not-allowed}
 
-.orb-stage{width:420px;height:420px;position:relative;margin:0 auto 10px}
+.orb-stage{width:540px;height:540px;position:relative;margin:0 auto 10px}
 .orb-halo{position:absolute;inset:-30px;border-radius:50%;background:radial-gradient(circle,rgba(72,233,255,.18),transparent 70%);filter:blur(20px);opacity:0;transition:opacity .5s}
 .orb-stage.active .orb-halo{opacity:.7}
 .orb-ring{position:absolute;inset:0;border-radius:50%;border:1px solid rgba(72,233,255,.25);animation:spin 24s linear infinite}
@@ -64,14 +64,14 @@ body::before{content:"";position:fixed;inset:0;background:radial-gradient(ellips
 .ring-dashed{border-style:dashed;animation-duration:30s;opacity:.45}
 @keyframes spin{to{transform:rotate(360deg)}}
 .orb-ticks{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,rgba(72,233,255,.35) 0deg 1deg,transparent 1deg 6deg);-webkit-mask:radial-gradient(circle,transparent 58%,#000 59%,#000 64%,transparent 65%);mask:radial-gradient(circle,transparent 58%,#000 59%,#000 64%,transparent 65%);animation:spin 48s linear infinite}
-.orb-center{position:absolute;inset:50%;transform:translate(-50%,-50%);width:110px;height:110px;border-radius:50%;background:radial-gradient(circle at 40% 38%,rgba(72,233,255,.15),rgba(0,0,0,.5) 65%);border:1px solid rgba(255,255,255,.2);box-shadow:inset 0 0 30px rgba(72,233,255,.15),0 0 40px rgba(72,233,255,.15);z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.orb-center{position:absolute;inset:50%;transform:translate(-50%,-50%);width:140px;height:140px;border-radius:50%;background:radial-gradient(circle at 40% 38%,rgba(72,233,255,.15),rgba(0,0,0,.5) 65%);border:1px solid rgba(255,255,255,.2);box-shadow:inset 0 0 30px rgba(72,233,255,.15),0 0 40px rgba(72,233,255,.15);z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
 .orb-glyph{display:flex;align-items:center;justify-content:center;gap:4px}
 .orb-glyph span{width:3px;height:20px;background:var(--accent-2);border-radius:2px;animation:glyphPulse 1.4s ease-in-out infinite}
 .orb-glyph span:nth-child(2){animation-delay:.2s}.orb-glyph span:nth-child(3){animation-delay:.4s}.orb-glyph span:nth-child(4){animation-delay:.6s}
 @keyframes glyphPulse{0%,100%{transform:scaleY(.5);opacity:.4}50%{transform:scaleY(1);opacity:1}}
 .orb-readout{text-align:center}
-.orb-readout strong{font-family:'Orbitron',sans-serif;font-size:.85rem;font-weight:800;color:#fff;text-shadow:0 0 10px rgba(72,233,255,.6)}
-.orb-readout small{font-family:'Share Tech Mono',monospace;font-size:.65rem;color:var(--muted)}
+.orb-readout strong{font-family:'Orbitron',sans-serif;font-size:1.1rem;font-weight:800;color:#fff;text-shadow:0 0 10px rgba(72,233,255,.6)}
+.orb-readout small{font-family:'Share Tech Mono',monospace;font-size:.72rem;color:var(--muted)}
 .orb-badge{position:absolute;bottom:-10px;font-family:'Share Tech Mono',monospace;font-size:.72rem;color:var(--accent-2);font-weight:700;letter-spacing:.08em}
 .orb-badge-left{left:-20px}
 .orb-badge-right{right:-20px}
