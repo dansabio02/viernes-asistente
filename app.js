@@ -143,16 +143,25 @@ async function hablar(texto) {
   detenerEscuchaParaHablar();
   // 1) intentar voz natural de Google vía Worker (gratis, sin key)
   try {
-    const r = await fetch(WORKER_URL + "/tts?texto=" + encodeURIComponent(texto.slice(0, 200)));
-    if (r.ok) {
+    const partes = [];
+    let resto = texto;
+    while (resto.length > 190) { let c = resto.lastIndexOf(" ", 190); if (c < 100) c = 190; partes.push(resto.slice(0, c)); resto = resto.slice(c).trim(); }
+    if (resto) partes.push(resto);
+    for (let i = 0; i < partes.length; i++) {
+      const r = await fetch(WORKER_URL + "/tts?texto=" + encodeURIComponent(partes[i]));
+      if (!r.ok) throw new Error("tts " + r.status);
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
       const a = new Audio(url);
-      a.onended = () => { URL.revokeObjectURL(url); speaking = false; busy = false; reanudarEscucha(); };
-      a.onerror = () => { URL.revokeObjectURL(url); hablarLocal(texto); };
-      a.play();
-      return;
+      a.playbackRate = cfg.rate || 1; // velocidad del usuario
+      await new Promise((res) => {
+        const fin = () => { URL.revokeObjectURL(url); res(); };
+        a.onended = fin; a.onerror = fin;
+        a.play();
+      });
     }
+    speaking = false; busy = false; reanudarEscucha();
+    return;
   } catch (e) {}
   hablarLocal(texto);
 }
