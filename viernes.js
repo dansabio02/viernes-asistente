@@ -147,7 +147,7 @@ function notaVoz(html, ms) {
 // ═══════════════════════════════════════════════════════════════
 // CHAT
 // ═══════════════════════════════════════════════════════════════
-function agregarMensaje(rol, html, textoPlanos) {
+function agregarMensaje(rol, html, textoPlanos, tipoVisual) {
   const caja = $("chatMessages");
   if (!caja) return null; // modo orbe: las respuestas solo se escuchan
   const div = document.createElement("div");
@@ -162,6 +162,8 @@ function agregarMensaje(rol, html, textoPlanos) {
   }
   caja.appendChild(div);
   caja.scrollTop = caja.scrollHeight;
+  // Mostrar contexto visual si se solicita
+  if (tipoVisual) mostrarContextoVisual(tipoVisual, textoPlanos);
   return div;
 }
 
@@ -186,6 +188,118 @@ function mostrarTyping() {
   caja.scrollTop = caja.scrollHeight;
 }
 function ocultarTyping() { const t = $("typing"); if (t) t.remove(); }
+
+// ═══════════════════════════════════════════════════════════════
+// CONTEXTO VISUAL — tarjetas con imágenes, iconos y emojis grandes
+// ═══════════════════════════════════════════════════════════════
+function generarContextoVisual(tipo, texto) {
+  const cont = $("contextoVisual");
+  if (!cont) return;
+  let icono, etiqueta, titulo, textoDestacado, acento, sombra, imagen, fondoId;
+
+  const t = texto || "";
+
+  switch (tipo) {
+    case "clima":
+      icono = "<i class=\"fa-solid fa-cloud-sun\"></i>";
+      etiqueta = "CLIMA EN VIVO";
+      acento = "#00D4FF"; sombra = "rgba(0,212,255,.5)";
+      titulo = "El clima ahora";
+      textoDestacado = t;
+      imagen = "https://cdn-icons-png.flaticon.com/512/1163/1163651.png";
+      fondoId = "fondoClima";
+      break;
+    case "temporizador":
+      icono = "<i class=\"fa-solid fa-clock\"></i>";
+      etiqueta = "TEMPORIZADOR";
+      acento = "#5cffb2"; sombra = "rgba(92,255,178,.5)";
+      titulo = "Temporizador activado";
+      textoDestacado = t;
+      imagen = "https://cdn-icons-png.flaticon.com/512/2093/2093725.png";
+      fondoId = "fondoTecnologia";
+      break;
+    case "nota":
+      icono = "<i class=\"fa-solid fa-sticky-note\"></i>";
+      etiqueta = "NOTA GUARDADA";
+      acento = "#fbbf24"; sombra = "rgba(251,191,36,.5)";
+      titulo = "Nota registrada";
+      textoDestacado = t;
+      imagen = "https://cdn-icons-png.flaticon.com/512/3203/3203019.png";
+      fondoId = "fondoTecnologia";
+      break;
+    case "calculo":
+      icono = "<i class=\"fa-solid fa-calculator\"></i>";
+      etiqueta = "CÁLCULO MATEMÁTICO";
+      acento = "#a78bfa"; sombra = "rgba(167,139,250,.5)";
+      titulo = "Resultado matemático";
+      textoDestacado = t;
+      imagen = "https://cdn-icons-png.flaticon.com/512/3828/3828869.png";
+      fondoId = "fondoTecnologia";
+      break;
+    case "saludo":
+      icono = "<i class=\"fa-solid fa-hand-sparkles\"></i>";
+      etiqueta = "SALUDO";
+      acento = "#00D4FF"; sombra = "rgba(0,212,255,.5)";
+      titulo = "¡Hola jefe!";
+      textoDestacado = t;
+      imagen = "https://cdn-icons-png.flaticon.com/512/1906/1906034.png";
+      fondoId = "fondoNeutro";
+      break;
+    case "error":
+      icono = "<i class=\"fa-solid fa-triangle-exclamation\"></i>";
+      etiqueta = "AVISO";
+      acento = "#f87171"; sombra = "rgba(248,113,113,.5)";
+      titulo = "Atención";
+      textoDestacado = t;
+      imagen = "https://cdn-icons-png.flaticon.com/512/252/252392.png";
+      fondoId = "fondoNeutro";
+      break;
+    default:
+      icono = "<i class=\"fa-solid fa-brain\"></i>";
+      etiqueta = "INTELIGENCIA ARTIFICIAL";
+      acento = "#00D4FF"; sombra = "rgba(0,212,255,.5)";
+      titulo = "VIERNES responde";
+      textoDestacado = t;
+      imagen = "https://cdn-icons-png.flaticon.com/512/4855/4855867.png";
+      fondoId = "fondoEspacio";
+  }
+
+  cont.innerHTML = `
+    <div class="tarjeta-visual" style="--color-acento: ${acento}; --color-icono: ${acento}; --color-sombra: ${sombra};">
+      <img src="${imagen}" class="imagen-visual" alt="contexto" loading="lazy">
+      <div class="icono-visual">${icono}</div>
+      <div class="contenido-visual">
+        <span class="etiqueta-visual">${etiqueta}</span>
+        <h2 class="titulo-visual">${titulo}</h2>
+        <p class="texto-visual destacado">${escapeHtml(textoDestacado)}</p>
+      </div>
+    </div>
+  `;
+  cont.classList.remove("oculto");
+  cont.classList.add("visible");
+
+  // Cambiar fondo dinámico según contexto
+  document.querySelectorAll(".fondo-dinamico").forEach((f) => f.classList.remove("activo"));
+  const f = document.getElementById(fondoId);
+  if (f) f.classList.add("activo");
+
+  // Ocultar automáticamente tras 8 segundos
+  clearTimeout(cont.temporizador);
+  cont.temporizador = setTimeout(() => {
+    cont.classList.remove("visible");
+    cont.classList.add("oculto");
+    document.querySelectorAll(".fondo-dinamico").forEach((ff) => ff.classList.remove("activo"));
+  }, 8000);
+}
+
+function mostrarContextoVisual(tipo, texto) {
+  generarContextoVisual(tipo, texto);
+}
+
+function ocultarContextoVisual() {
+  const cont = $("contextoVisual");
+  if (cont) { cont.classList.remove("visible"); cont.classList.add("oculto"); }
+}
 
 function guardarHistorial() {
   try { localStorage.setItem("viernes_historial", JSON.stringify(historial.slice(-30))); } catch (e) {}
@@ -719,34 +833,34 @@ function comandoLocal(t) {
     const c = calificativo().toLowerCase();
     const nom = c ? ", " + c : "";
     return { html: `<b>¡Hola${nom}! 👋</b> Soy VIERNES, tu asistente personal. Pregúntame lo que necesites: horas, fechas, clima, notas, cálculos…`,
-             texto: `Hola${nom}. Soy VIERNES, tu asistente personal. Pregúntame lo que necesites.` };
+             texto: `Hola${nom}. Soy VIERNES, tu asistente personal. Pregúntame lo que necesites.`, tipoVisual: "saludo" };
   }
 
   if (/que hora (es|son)/.test(n)) {
     const h = new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
     const t = conTrato("son las " + h + ".");
-    return { html: `<b>🕐 ${t}</b>`, texto: t };
+    return { html: `<b>🕐 ${t}</b>`, texto: t, tipoVisual: "saludo" };
   }
   if (/que fecha|que dia es hoy|dia de hoy/.test(n)) {
     const f = new Date().toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long" });
     const t = conTrato("hoy es " + f + ".");
-    return { html: `<b>📅 ${t}</b>`, texto: t };
+    return { html: `<b>📅 ${t}</b>`, texto: t, tipoVisual: "saludo" };
   }
   if (/como te llamas|tu nombre|quien eres/.test(n)) {
     const c = calificativo().toLowerCase();
     const tr = c ? ", " + c + "," : "";
     return { html: `<b>Soy VIERNES</b> 🤖 Tu asistente personal${tr} siempre listo para ayudarte.`,
-             texto: `Soy VIERNES, tu asistente personal${tr} siempre listo para ayudarte.` };
+             texto: `Soy VIERNES, tu asistente personal${tr} siempre listo para ayudarte.`, tipoVisual: "saludo" };
   }
   if (/gracias/.test(n)) {
     const c = calificativo().toLowerCase();
     const tr = c ? ", " + c : "";
     return { html: `<b>¡De nada${tr}! 😊</b> Aquí estoy para lo que necesites.`,
-             texto: `De nada${tr}. Aquí estoy para lo que necesites.` };
+             texto: `De nada${tr}. Aquí estoy para lo que necesites.`, tipoVisual: "saludo" };
   }
   if (/callate|silencio|deja de hablar|para de hablar/.test(n)) {
     if (window.speechSynthesis) speechSynthesis.cancel();
-    return { html: "<b>🔇 " + conTrato("en silencio.") + "</b>", texto: "" };
+    return { html: "<b>🔇 " + conTrato("en silencio.") + "</b>", texto: "", tipoVisual: "error" };
   }
   return null;
 }
@@ -789,9 +903,33 @@ async function climaDe(lat, lon, lugar) {
   const j = await r.json();
   const c = j.current || {};
   const desc = CODIGOS_CLIMA[c.weather_code] || "cambiante";
-  return conTrato("en " + lugar + ": " + Math.round(c.temperature_2m) +
+  const icono = iconoClima(c.weather_code);
+  const html = `<div style="display:flex;align-items:center;gap:16px;">
+    <span style="font-size:3rem;">${icono}</span>
+    <div>
+      <div class="label-hud" style="color:var(--cyan);">CLIMA EN ${lugar.toUpperCase()}</div>
+      <div style="font-size:3rem;font-weight:900;color:#ffffff;">${Math.round(c.temperature_2m)}°C</div>
+      <div style="color:#9BDFFF;">${desc} · humedad ${c.relative_humidity_2m}%</div>
+    </div>
+  </div>`;
+  return { html: html, texto: conTrato("en " + lugar + ": " + Math.round(c.temperature_2m) +
     " grados " + desc + ", se sienten como " + Math.round(c.apparent_temperature || c.temperature_2m) +
-    ", humedad " + c.relative_humidity_2m + "%, viento " + Math.round(c.wind_speed_10m) + " kilómetros por hora.");
+    ", humedad " + c.relative_humidity_2m + "%, viento " + Math.round(c.wind_speed_10m) + " kilómetros por hora."),
+    tipoVisual: "clima" };
+}
+
+// Icono de clima por código Open-Meteo
+function iconoClima(codigo) {
+  const map = {
+    0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️", 45: "🌫️", 48: "🌫️",
+    51: "🌧️", 53: "🌧️", 55: "🌧️", 56: "🌨️", 57: "🌨️",
+    61: "🌦️", 63: "🌧️", 65: "🌧️", 66: "🌨️", 67: "🌨️",
+    71: "🌨️", 73: "🌨️", 75: "🌨️", 77: "🌨️",
+    80: "🌧️", 81: "🌧️", 82: "🌧️",
+    85: "🌨️", 86: "🌨️",
+    95: "⛈️", 96: "⛈️", 99: "⛈️"
+  };
+  return map[codigo] || "🌡️";
 }
 
 // "VIERNES, temperatura en Madrid" o "VIERNES, ¿qué clima hace?"
@@ -815,6 +953,10 @@ async function comandoClima(texto) {
 // ═══════════════════════════════════════════════════════════════
 // TEMPORIZADORES · "VIERNES, recuérdame en 5 minutos"
 // ═══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════
+// TEMPORIZADORES · "VIERNES, recuérdame en 5 minutos"
+// ═══════════════════════════════════════════════════════════════
 function comandoTemporizador(texto) {
   const m = texto.match(/(\d+)\s*(segundos?|minutos?|horas?)/i);
   if (!m) return null;
@@ -830,7 +972,7 @@ function comandoTemporizador(texto) {
     hablar(aviso);
   }, ms);
   const t = conTrato("temporizador de " + cantidad + " " + unidad + " activado.");
-  return { html: "<b>⏱️ " + escapeHtml(t) + "</b>", texto: t };
+  return { html: "<b>⏱️ " + escapeHtml(t) + "</b>", texto: t, tipoVisual: "temporizador" };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -843,11 +985,11 @@ function comandoNotas(texto) {
     try { notas = JSON.parse(localStorage.getItem("viernes_notas") || "[]"); } catch (e) {}
     if (!notas.length) {
       const t = conTrato("no tienes notas.");
-      return { html: "<b>📝 " + t + "</b>", texto: t };
+      return { html: "<b>📝 " + t + "</b>", texto: t, tipoVisual: "nota" };
     }
     const lista = notas.map((x, i) => (i + 1) + ". " + x).join("; ");
     const t = conTrato("tienes " + notas.length + " notas. " + lista);
-    return { html: "<b>📝 " + escapeHtml(t) + "</b>", texto: t };
+    return { html: "<b>📝 " + escapeHtml(t) + "</b>", texto: t, tipoVisual: "nota" };
   }
   const m = texto.match(/(?:guarda|apunta|anota|nota:?)\s+(.+)/i);
   if (m) {
@@ -857,7 +999,7 @@ function comandoNotas(texto) {
     notas.push(contenido);
     try { localStorage.setItem("viernes_notas", JSON.stringify(notas.slice(-50))); } catch (e) {}
     const t = conTrato("nota guardada.");
-    return { html: "<b>📝 " + escapeHtml(t) + "</b> <i>(" + escapeHtml(contenido) + ")</i>", texto: t };
+    return { html: "<b>📝 " + escapeHtml(t) + "</b> <i>(" + escapeHtml(contenido) + ")</i>", texto: t, tipoVisual: "nota" };
   }
   return null;
 }
@@ -880,7 +1022,7 @@ function comandoMatematicas(texto) {
   } catch (e) { return null; }
   if (typeof resultado !== "number" || !isFinite(resultado)) return null;
   const t = conTrato(expr + " es igual a " + (Math.round(resultado * 100) / 100));
-  return { html: "<b>🧮 " + escapeHtml(t) + "</b>", texto: t };
+  return { html: "<b>🧮 " + escapeHtml(t) + "</b>", texto: t, tipoVisual: "calculo" };
 }
 
 // Rutas de conexión: tu proxy primero, luego directo y proxies públicos
@@ -933,13 +1075,13 @@ async function procesarComando(texto) {
   if (/(temperatura|clima|tiempo hace|que tiempo|grados)/i.test(texto)) {
     mostrarTyping();
     try {
-      const textoClima = await comandoClima(texto);
+      const rClima = await comandoClima(texto);
       ocultarTyping();
-      finalizarRespuesta(texto, "<b>🌡️ " + escapeHtml(textoClima) + "</b>", textoClima);
+      finalizarRespuesta(texto, rClima.html, rClima.texto, rClima.tipoVisual);
     } catch (e) {
       ocultarTyping();
       finalizarRespuesta(texto, "<b>🌡️ No pude obtener el clima.</b>",
-        conTrato("no pude obtener el clima. Prueba a decir: temperatura en Madrid, o permite la ubicación."));
+        conTrato("no pude obtener el clima. Prueba a decir: temperatura en Madrid, o permite la ubicación."), "error");
     }
     return;
   }
@@ -948,11 +1090,11 @@ async function procesarComando(texto) {
   if (/recuerda|alarma|temporizador|timer/i.test(texto)) {
     const t = comandoTemporizador(texto);
     if (t) {
-      finalizarRespuesta(texto, t.html, t.texto);
+      finalizarRespuesta(texto, t.html, t.texto, t.tipoVisual);
     } else {
       const c = calificativo().toLowerCase();
       finalizarRespuesta(texto, `<b>⏱️ ¿Cuándo${c ? ", " + c : ""}?</b>`,
-        conTrato("dime la forma: recuérdame en 5 minutos, o alarma en 1 hora."));
+        conTrato("dime la forma: recuérdame en 5 minutos, o alarma en 1 hora."), "temporizador");
     }
     return;
   }
@@ -966,11 +1108,12 @@ async function procesarComando(texto) {
   if (mate) { finalizarRespuesta(texto, mate.html, mate.texto); return; }
 
   const local = comandoLocal(texto);
-  let html, textoRespuesta;
+  let html, textoRespuesta, tipoVisualIA = "general";
 
   if (local) {
     html = local.html;
     textoRespuesta = local.texto;
+    tipoVisualIA = local.tipoVisual || "general";
   } else {
     mostrarTyping();
     try {
@@ -980,6 +1123,13 @@ async function procesarComando(texto) {
       const res = await pedirGroq(mensajes);
       textoRespuesta = res.texto.trim();
       html = formatearRespuesta(textoRespuesta);
+      // Detectar tipo visual para la respuesta de IA
+      const nIA = normalizar(textoRespuesta);
+      if (/temperatura|clima|grados|soleado|nublado|lluvia|nieve|tormenta/.test(nIA)) tipoVisualIA = "clima";
+      else if (/hora|fecha|día|dia/.test(nIA)) tipoVisualIA = "saludo";
+      else if (/error|no pude|fallo|problema/.test(nIA)) tipoVisualIA = "error";
+      else if (/nota|guardar|memorizar/.test(nIA)) tipoVisualIA = "nota";
+      else if (/cuánto|cuanto|calcula|suma|resta|multiplica|divide/.test(nIA)) tipoVisualIA = "calculo";
     } catch (e) {
       const detalle = e.message || "desconocido";
       html = `<div class="rounded-sm p-3 border" style="background:rgba(254,242,242,.08);border-color:#F87171;">
@@ -996,16 +1146,17 @@ async function procesarComando(texto) {
       textoRespuesta = conTrato("no pude conectar con la IA. Revisa la consola para los pasos.");
       const sub = $("estadoSub");
       if (sub) sub.innerHTML = "⚠️ Sin conexión con la IA — AJUSTES → PROBAR CONEXIÓN";
+      tipoVisualIA = "error";
     }
     ocultarTyping();
   }
 
-  finalizarRespuesta(texto, html, textoRespuesta);
+  finalizarRespuesta(texto, html, textoRespuesta, tipoVisualIA);
 }
 
 // Cola de salida: muestra, memoriza y habla la respuesta
-function finalizarRespuesta(texto, html, textoRespuesta) {
-  agregarMensaje("assistant", html, textoRespuesta);
+function finalizarRespuesta(texto, html, textoRespuesta, tipoVisual = "general") {
+  agregarMensaje("assistant", html, textoRespuesta, tipoVisual);
   historial.push({ rol: "user", texto: texto });
   historial.push({ rol: "assistant", texto: textoRespuesta });
   guardarHistorial();

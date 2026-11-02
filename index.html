@@ -286,6 +286,111 @@
     .barrido { inset: 59px; } .ticks { inset: -14px; }
     .orb-label { font-size: 12px; letter-spacing: .11em; }
   }
+
+  /* ═══ CONTEXTO VISUAL — TARJETAS CON IMÁGENES E ICONOS ═══ */
+  .contexto-visual {
+    position: fixed;
+    top: 130px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 92%;
+    max-width: 720px;
+    z-index: 95;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .5s ease, transform .5s ease;
+  }
+  .contexto-visual.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .contexto-visual.oculto { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+
+  .tarjeta-visual {
+    background: rgba(6,14,26,.96);
+    border: 1px solid rgba(0,212,255,.4);
+    border-radius: 20px;
+    padding: 24px 28px;
+    box-shadow: 0 0 60px rgba(0,212,255,.2), inset 0 0 80px rgba(0,212,255,.08);
+    backdrop-filter: blur(12px);
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    animation: aparecerVisual .6s cubic-bezier(.34,1.56,.64,1);
+    position: relative;
+    overflow: hidden;
+  }
+  .tarjeta-visual::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+    background: linear-gradient(90deg, var(--color-acento, #00D4FF), transparent);
+    border-radius: 20px 20px 0 0;
+  }
+  .icono-visual {
+    width: 96px; height: 96px; border-radius: 50%;
+    background: rgba(0,212,255,.18);
+    border: 2px solid rgba(0,212,255,.55);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 44px; color: var(--color-icono, #00D4FF);
+    flex-shrink: 0;
+    box-shadow: 0 0 30px var(--color-sombra, rgba(0,212,255,.4));
+    animation: flotarIcono 3s ease-in-out infinite;
+    position: relative;
+    z-index: 2;
+  }
+  .icono-visual::after {
+    content: ""; position: absolute; inset: -8px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.3);
+    animation: girarLuz 4s linear infinite;
+    opacity: .6;
+  }
+  @keyframes flotarIcono { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+  @keyframes girarLuz { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  .contenido-visual { flex: 1; position: relative; z-index: 2; }
+  .etiqueta-visual {
+    font-family: 'Share Tech Mono', monospace; font-size: 10px; letter-spacing: .25em;
+    text-transform: uppercase; color: var(--color-acento, #00D4FF); margin-bottom: 8px;
+    display: block; font-weight: 700;
+  }
+  .titulo-visual {
+    font-family: 'Orbitron', sans-serif; font-size: 1.7rem; font-weight: 900;
+    color: #ffffff; margin: 0 0 10px 0; line-height: 1.15;
+    text-shadow: 0 0 14px var(--color-acento, rgba(0,212,255,.5));
+  }
+  .texto-visual {
+    font-family: 'Rajdhani', sans-serif; font-size: 1.15rem; color: #CFE9F5;
+    margin: 0; line-height: 1.6;
+  }
+  .texto-visual.destacado { font-size: 1.5rem; font-weight: 800; color: #ffffff; }
+
+  /* Imagen contextual dentro de la tarjeta */
+  .imagen-visual {
+    width: 120px; height: 120px; border-radius: 16px;
+    object-fit: cover; flex-shrink: 0;
+    border: 2px solid rgba(255,255,255,.2);
+    box-shadow: 0 0 20px rgba(0,0,0,.5);
+    animation: pulseImg 2.5s ease-in-out infinite;
+    position: relative; z-index: 2;
+  }
+  @keyframes pulseImg { 0%,100% { transform: scale(1); box-shadow: 0 0 0 rgba(0,212,255,.4); } 50% { transform: scale(1.05); box-shadow: 0 0 20px rgba(0,212,255,.6); } }
+
+  .clima-grande { font-size: 3rem; font-weight: 900; }
+  .clima-detalle { font-size: 1.1rem; color: #9BDFFF; margin-top: 6px; }
+
+  @keyframes aparecerVisual { from { opacity: 0; transform: translateY(25px); } to { opacity: 1; transform: translateY(0); } }
+
+  .contextual-chip {
+    display: inline-block; padding: 5px 14px; border-radius: 24px;
+    font-family: 'Share Tech Mono', monospace; font-size: 10px;
+    background: rgba(0,212,255,.15); border: 1px solid rgba(0,212,255,.35);
+    color: var(--color-acento, #00D4FF); margin-bottom: 10px;
+    font-weight: 700;
+  }
+
+  /* Fondo dinámico según contexto */
+  .fondo-dinamico {
+    position: fixed; inset: 0; z-index: -1;
+    opacity: 0; transition: opacity .6s ease;
+    background-size: cover; background-position: center;
+  }
+  .fondo-dinamico.activo { opacity: .18; }
 </style>
 <script src="config.js"></script>
   <script src="config.local.js"></script>
@@ -304,7 +409,7 @@
       <img src="icon.svg" alt="VIERNES" class="w-9 h-9" style="filter: drop-shadow(0 0 8px rgba(0,212,255,.6));">
       <div>
         <div class="font-hud font-bold tracking-[.3em] text-white text-sm" style="text-shadow: 0 0 12px rgba(0,212,255,.8);">VIERNES</div>
-        <div class="label-hud">Asistente personal · protocolo J.A.R.V.I.S.</div>
+        <div class="label-hud">Asistente personal · contexto visual</div>
       </div>
     </div>
     <div id="statusPill" class="panel flex items-center gap-2 px-3 py-1.5 rounded-sm">
@@ -340,6 +445,16 @@
     </div>
   </div>
 </main>
+
+<!-- ═══ FONDOS DINÁMICOS POR CONTEXTO ═══ -->
+<div id="fondoClima" class="fondo-dinamico" style="background-image: url('https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80');"></div>
+<div id="fondoEspacio" class="fondo-dinamico" style="background-image: url('https://images.unsplash.com/photo-1446776811953-b23d57bd22aa?auto=format&fit=crop&w=1200&q=80');"></div>
+<div id="fondoTecnologia" class="fondo-dinamico" style="background-image: url('https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=80');"></div>
+<div id="fondoNaturaleza" class="fondo-dinamico" style="background-image: url('https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1200&q=80');"></div>
+<div id="fondoNeutro" class="fondo-dinamico" style="background-image: url('https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1200&q=80');"></div>
+
+<!-- ═══ CONTEXTO VISUAL (se muestra al recibir respuesta) ═══ -->
+<div id="contextoVisual" class="contexto-visual oculto"></div>
 
 <footer class="w-full max-w-3xl mx-auto px-4 pb-5 flex flex-col items-center gap-4">
 
@@ -413,7 +528,7 @@
   </div>
 </footer>
 
-<script src="viernes.js?v=16"></script>
+<script src="viernes.js?v=18"></script>
 <script>
   // Generador de partículas flotantes alrededor del orbe
   (function(){
