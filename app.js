@@ -32,19 +32,21 @@ const toast = (t) => {
   c.appendChild(el); setTimeout(() => el.remove(), 3500);
 };
 const save = () => { try { localStorage.setItem("viernes_cfg", JSON.stringify(cfg)); } catch (e) {} };
-const groqKey = () => cfg.apiKey;
+// La clave de Groq vive en el Worker de Cloudflare (Secret GROQ_API_KEY).
+// El navegador NO la necesita: llama al Worker, que añade la key del lado del servidor.
+const WORKER_URL = (window.VIERNES_PROXY_URL || "https://viernes-proxy.danielnaula156.workers.dev").replace(/\/$/, "");
 
 async function groqChat(mensajes) {
-  const key = groqKey();
-  if (!key) throw new Error("Sin clave de Groq. Configúrala en Conexión.");
-  const r = await fetch(cfg.baseUrl + "/chat/completions", {
-    method: "POST",
-    headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: cfg.model, messages: mensajes, temperature: 0.5, max_tokens: cfg.maxTokens })
-  });
-  if (!r.ok) { const t = await r.text(); throw new Error("Groq HTTP " + r.status + ": " + t.slice(0,150)); }
+  const body = JSON.stringify({ model: cfg.model, messages: mensajes, temperature: 0.5, max_tokens: cfg.maxTokens });
+  let r = await fetch(WORKER_URL + "/", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+  if (!r.ok) {
+    const t = await r.text().catch(() => "");
+    throw new Error("Worker Groq HTTP " + r.status + ": " + t.slice(0,150));
+  }
   const j = await r.json();
-  return j.choices[0].message.content;
+  const c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+  if (!c) throw new Error("Respuesta vacía de Groq");
+  return c;
 }
 
 function systemPrompt() {
@@ -91,9 +93,12 @@ function iniciarReconocimiento() {
   };
 }
 async function activarMicrofono() {
-  if (!recognition) iniciarReconocimiento();
+  // Recrear el reconocedor en cada activación para evitar estado "used"
+  if (recognition) { try { recognition.onend = null; recognition.stop(); } catch (e) {} recognition = null; }
+  iniciarReconocimiento();
+  if (!recognition) { log("Reconocimiento no soportado", "error"); return; }
   listening = true; setEstado("listening");
-  try { recognition.start(); } catch (e) {}
+  try { recognition.start(); } catch (e) { log("Error al iniciar micrófono: " + e.message, "error"); }
   $("btnPower").classList.add("active"); $("btnMic").classList.add("active");
   $("powerLabel").textContent = "ACTIVO";
   log("Escucha activa. Di «Viernes»…", "ok");
@@ -319,8 +324,9 @@ function init() {
   try { historial = JSON.parse(localStorage.getItem("viernes_hist") || "[]"); } catch (e) {}
   starfield(); actualizarReloj(); setInterval(actualizarReloj, 1000);
   aplicarUI(); bindAjustes();
-  // mostrar onboarding si no hay key
-  if (!cfg.apiKey) { abrirModal("onboarding"); } else { document.body.setAttribute("data-ready","true"); }
+  // La clave está en el Worker de Cloudflare: NO bloquear con onboarding.
+  document.body.setAttribute("data-ready","true");
+  cerrarModal("onboarding");
   // chequeos de capacidades
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   document.querySelectorAll("#onboardStatus span").forEach(s => {
@@ -328,7 +334,7 @@ function init() {
     const ok = k === "browser" ? !!SR : k === "secure" ? location.protocol !== "file:" : k === "speech" ? !!window.speechSynthesis : k === "camera" ? !!navigator.mediaDevices : false;
     if (ok) { s.classList.add("ok"); s.innerHTML = s.innerHTML.replace("<i></i>", "<i></i>"); }
   });
-  iniciarReconocimiento();
+  iniciarReconocimiento(); // calienta el permiso (no arranca)
   // listeners principales
   $("btnPower").addEventListener("click", () => listening ? desactivarMicrofono() : activarMicrofono());
   $("btnMic").addEventListener("click", () => listening ? desactivarMicrofono() : activarMicrofono());
