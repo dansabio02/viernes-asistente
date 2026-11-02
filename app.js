@@ -227,6 +227,51 @@ function comandoLocal(texto) {
   return null;
 }
 
+// ── CLIMA en vivo (Open-Meteo, gratis y sin key) ──
+const CODIGOS_CLIMA = {
+  0:"despejado",1:"casi despejado",2:"parcialmente nublado",3:"nublado",
+  45:"con niebla",48:"con escarcha",51:"llovizna ligera",53:"llovizna",55:"llovizna densa",
+  56:"llovizna helada",57:"llovizna helada",61:"lluvia ligera",63:"lluvia",65:"lluvia intensa",
+  66:"lluvia helada",67:"lluvia helada",71:"nevada ligera",73:"nevada",75:"nevada intensa",77:"granizo",
+  80:"chubascos",81:"chubascos",82:"chubascos intensos",85:"chubascos de nieve",86:"chubascos de nieve",
+  95:"tormenta",96:"tormenta con granizo",99:"tormenta fuerte"
+};
+async function buscarCiudad(nombre) {
+  const r = await fetch("https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(nombre) + "&count=1&language=es");
+  if (!r.ok) return null;
+  const j = await r.json();
+  if (!j.results || !j.results.length) return null;
+  const g = j.results[0];
+  return { lat: g.latitude, lon: g.longitude, nombre: g.name + (g.country ? ", " + g.country : "") };
+}
+async function climaDe(lat, lon, lugar) {
+  const r = await fetch("https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon +
+    "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m&timezone=auto");
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  const j = await r.json();
+  const c = j.current || {};
+  const desc = CODIGOS_CLIMA[c.weather_code] || "cambiante";
+  return "En " + lugar + " hay " + Math.round(c.temperature_2m) + " grados, " + desc +
+    ", sensación de " + Math.round(c.apparent_temperature || c.temperature_2m) + " grados, humedad " +
+    c.relative_humidity_2m + " por ciento, viento de " + Math.round(c.wind_speed_10m) + " kilómetros por hora, señor.";
+}
+async function comandoClima(texto) {
+  const m = texto.match(/(?:en|de|para)\s+([a-záéíóúñü\s]+)/i);
+  let geo = null;
+  if (m) {
+    const nombre = m[1].trim().replace(/^(la|el|los|las)\s+/i, "");
+    geo = await buscarCiudad(nombre);
+  }
+  if (!geo && navigator.geolocation) {
+    try {
+      const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 8000, maximumAge: 300000 }));
+      geo = { lat: pos.coords.latitude, lon: pos.coords.longitude, nombre: "su ubicación" };
+    } catch (e) {}
+  }
+  if (!geo) return null;
+  return await climaDe(geo.lat, geo.lon, geo.nombre);
+}
+
 async function enviarTexto(texto) {
   texto = (texto || "").trim();
   if (!texto && !contextoImagen) return;
@@ -242,6 +287,10 @@ async function enviarTexto(texto) {
     // Comando local instantáneo (hora, fecha, saludo, estado) — sin IA
     let resp;
     if (!contextoImagen) resp = comandoLocal(texto);
+    // Clima en vivo (Open-Meteo)
+    if (!resp && !contextoImagen && /temperatura|clima|tiempo hace|que tiempo|grados|lluvia|humedad|calor|frio|nevando/.test(normalizar(texto))) {
+      try { resp = await comandoClima(texto); } catch (e) { log("Clima: " + e.message, "warn"); }
+    }
     if (!resp) {
       const msgs = [{ role: "system", content: systemPrompt() }, ...historial.slice(-6), { role: "user", content: texto || "(imagen)" }];
       resp = await groqChat(msgs);
