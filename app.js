@@ -124,18 +124,57 @@ function procesarVoz(texto) {
 }
 
 /* ==== TTS ==== */
-function hablar(texto) {
-  if (!cfg.autoSpeak || !synth || !texto) { setEstado(listening ? "listening" : "standby"); return; }
+function detenerEscuchaParaHablar() {
+  if (recognition) { try { recognition.stop(); } catch (e) {} }
+}
+function reanudarEscucha() {
+  if (!listening) return;
+  try {
+    if (!recognition) iniciarReconocimiento();
+    if (recognition) recognition.start();
+  } catch (e) {}
+  setEstado("listening");
+}
+
+// Voz hiperrealista: Edge TTS neural vía el Worker (con fallback a navegador)
+async function hablar(texto) {
+  if (!cfg.autoSpeak || !texto) { setEstado(listening ? "listening" : "standby"); return; }
+  speaking = true; busy = true; setEstado("speaking");
+  detenerEscuchaParaHablar();
+  // 1) intentar voz neural de Edge (gratis, sin key)
+  try {
+    const r = await fetch(WORKER_URL + "/tts-edge?texto=" + encodeURIComponent(texto.slice(0, 400)));
+    if (r.ok) {
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = new Audio(url);
+      a.onended = () => { URL.revokeObjectURL(url); speaking = false; busy = false; reanudarEscucha(); };
+      a.onerror = () => { URL.revokeObjectURL(url); hablarLocal(texto); };
+      a.play();
+      return;
+    }
+  } catch (e) {}
+  hablarLocal(texto);
+}
+
+function hablarLocal(texto) {
+  if (!synth) { speaking = false; busy = false; reanudarEscucha(); return; }
   if (synth.speaking) synth.cancel();
   const u = new SpeechSynthesisUtterance(texto);
   u.lang = cfg.language; u.rate = cfg.rate; u.pitch = cfg.pitch;
   const voces = synth.getVoices();
   const v = voces.find(x => x.name === cfg.browserVoice) || voces.find(x => x.lang && x.lang.startsWith(cfg.language.split("-")[0])) || voces[0];
   if (v) u.voice = v;
-  u.onstart = () => { speaking = true; busy = true; setEstado("speaking"); };
-  u.onend = u.onerror = () => { speaking = false; busy = false; setEstado(listening ? "listening" : "standby"); };
+  u.onend = u.onerror = () => { speaking = false; busy = false; reanudarEscucha(); };
   synth.speak(u);
 }
+
+// Keepalive: Chrome corta la sesión sin disparar onend tras varios ciclos.
+setInterval(() => {
+  if (listening && recognition && !speaking && !busy && !document.hidden) {
+    try { recognition.stop(); } catch (e) {}
+  }
+}, 15000);
 
 /* ==== MENSAJES ==== */
 function agregarMensaje(rol, texto, img) {
@@ -320,10 +359,52 @@ function starfield() {
   resize(); draw(); addEventListener("resize", resize);
 }
 
+// Orbe cerebro: red neuronal (neuronas + sinapsis con pulsos viajeros)
+function brainNetwork() {
+  const cv = $("brainCanvas"); if (!cv) return;
+  const ctx = cv.getContext("2d"); const W = cv.width, H = cv.height;
+  const cx = W/2, cy = H/2;
+  const nodes = [];
+  for (let i = 0; i < 80; i++) {
+    const side = i % 2 === 0 ? -1 : 1;
+    const ang = Math.random() * Math.PI * 2;
+    const x = cx + side * W * 0.20 + Math.cos(ang) * W * 0.22;
+    const y = cy + Math.sin(ang) * H * 0.36;
+    nodes.push({ x, y, r: 1.2 + Math.random() * 1.8 });
+  }
+  const links = [];
+  for (let i = 0; i < nodes.length; i++) for (let j = i+1; j < nodes.length; j++) {
+    const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
+    const d = Math.sqrt(dx*dx + dy*dy);
+    if (d < 95) links.push({ a: i, b: j, p: Math.random() });
+  }
+  const activo = () => document.body.getAttribute("data-state") !== "standby";
+  function draw() {
+    ctx.clearRect(0,0,W,H);
+    const g = activo() ? 0.9 : 0.35;
+    for (const l of links) {
+      const a = nodes[l.a], b = nodes[l.b];
+      ctx.strokeStyle = `rgba(72,233,255,${0.12*g})`;
+      ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+      l.p += 0.004 * (activo() ? 2 : 1); if (l.p > 1) l.p = 0;
+      const px = a.x + (b.x - a.x)*l.p, py = a.y + (b.y - a.y)*l.p;
+      ctx.fillStyle = `rgba(72,233,255,${0.85*g})`;
+      ctx.beginPath(); ctx.arc(px, py, 2, 0, 7); ctx.fill();
+    }
+    for (const n of nodes) {
+      ctx.fillStyle = `rgba(72,233,255,${0.65*g})`;
+      ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 7); ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+}
+
 function init() {
   try { Object.assign(cfg, JSON.parse(localStorage.getItem("viernes_cfg") || "{}")); } catch (e) {}
   try { historial = JSON.parse(localStorage.getItem("viernes_hist") || "[]"); } catch (e) {}
-  starfield(); actualizarReloj(); setInterval(actualizarReloj, 1000);
+  starfield(); brainNetwork(); actualizarReloj(); setInterval(actualizarReloj, 1000);
   aplicarUI(); bindAjustes();
   // La clave está en el Worker de Cloudflare: NO bloquear con onboarding.
   document.body.setAttribute("data-ready","true");
