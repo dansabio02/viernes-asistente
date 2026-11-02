@@ -50,9 +50,9 @@ async function groqChat(mensajes) {
 }
 
 function systemPrompt() {
-  return "Eres VIERNES, asistente personal de " + cfg.userName + ". Responde en español de México, máximo 4 líneas. " +
-    "Trátalo como '" + cfg.altName + "' o '" + cfg.userName + "' de forma natural. No uses emojis. " +
-    "Razona brevemente si requiere cálculo o lógica. Ve directo al grano.";
+  return "Eres VIERNES, asistente personal leal de " + cfg.userName + ". Responde en español de México, máximo 4 líneas. " +
+    "Dirígete a él como 'señor' en cada respuesta. Nunca uses emojis. " +
+    "Razona brevemente si requiere cálculo o lógica. Ve directo al grano, con respeto y lealtad.";
 }
 
 function setEstado(e) {
@@ -141,9 +141,9 @@ async function hablar(texto) {
   if (!cfg.autoSpeak || !texto) { setEstado(listening ? "listening" : "standby"); return; }
   speaking = true; busy = true; setEstado("speaking");
   detenerEscuchaParaHablar();
-  // 1) intentar voz neural de Edge (gratis, sin key)
+  // 1) intentar voz natural de Google vía Worker (gratis, sin key)
   try {
-    const r = await fetch(WORKER_URL + "/tts-edge?texto=" + encodeURIComponent(texto.slice(0, 400)));
+    const r = await fetch(WORKER_URL + "/tts?texto=" + encodeURIComponent(texto.slice(0, 200)));
     if (r.ok) {
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
@@ -195,6 +195,38 @@ function agregarMensaje(rol, texto, img) {
   box.appendChild(div); box.scrollTop = box.scrollHeight;
 }
 
+// Comandos locales instantáneos (sin IA): hora, fecha, saludos, estado
+function normalizar(t) {
+  return (t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+function comandoLocal(texto) {
+  const n = normalizar(texto);
+  if (!n) return null;
+  // ¿Estás despierta? → respuesta fija de lealtad
+  if (/estas (despierta|despierto|ahi|activa|activo|ahi|presente|conmigo)|sigues (despierta|despierto|ahi|activa|activo)|estas funcionando/.test(n)) {
+    return "Para usted señor, siempre.";
+  }
+  // Hora
+  if (/que hora|la hora|hora actual|hora es|dime la hora/.test(n)) {
+    const h = new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+    return "Son las " + h + ", señor.";
+  }
+  // Fecha
+  if (/que fecha|que dia es|fecha de hoy|dia de hoy|la fecha/.test(n)) {
+    const f = new Date().toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    return "Hoy es " + f + ", señor.";
+  }
+  // Saludos
+  if (/^(hola|buenos dias|buenas tardes|buenas noches|hey|ey|que tal|buen dia)$/.test(n)) {
+    return "Hola, señor. Estoy a su servicio. ¿En qué le ayudo?";
+  }
+  // Quién eres
+  if (/quien eres|como te llamas|tu nombre/.test(n)) {
+    return "Soy Viernes, su asistente personal. Para usted señor, siempre disponible.";
+  }
+  return null;
+}
+
 async function enviarTexto(texto) {
   texto = (texto || "").trim();
   if (!texto && !contextoImagen) return;
@@ -207,8 +239,13 @@ async function enviarTexto(texto) {
   log("Usuario: " + (texto || "[imagen]"), "ok");
   const t0 = Date.now();
   try {
-    const msgs = [{ role: "system", content: systemPrompt() }, ...historial.slice(-6), { role: "user", content: texto || "(imagen)" }];
-    const resp = await groqChat(msgs);
+    // Comando local instantáneo (hora, fecha, saludo, estado) — sin IA
+    let resp;
+    if (!contextoImagen) resp = comandoLocal(texto);
+    if (!resp) {
+      const msgs = [{ role: "system", content: systemPrompt() }, ...historial.slice(-6), { role: "user", content: texto || "(imagen)" }];
+      resp = await groqChat(msgs);
+    }
     ty.remove(); agregarMensaje("vi", resp);
     historial.push({ role: "user", content: texto || "[imagen]" }); historial.push({ role: "assistant", content: resp });
     if (cfg.memory) { try { localStorage.setItem("viernes_hist", JSON.stringify(historial.slice(-30))); } catch (e) {} }
