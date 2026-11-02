@@ -6,8 +6,9 @@
 // 2. Nómbralo "viernes-proxy"
 // 3. Edit code (</>) → borra el código de ejemplo y pega ESTE archivo completo
 // 4. Save and Deploy
-// 5. (Opcional) Settings → Variables → Add variable:
-//      VIERNES_ORIGIN = https://tusitio (Type: Text)
+// 5. Settings → Variables → Add variable (Type: Secret):
+//      GROQ_API_KEY = tu_key_de_groq
+//    (Opcional) VIERNES_ORIGIN = https://tusitio (Type: Text)
 //    Si VIERNES_ORIGIN no existe, se permite cualquier origen.
 // 6. Si aparece "unpublished changes" → Deploy otra vez.
 //
@@ -15,11 +16,11 @@
 //   POST /              → proxy a Groq (GROQ_API_KEY del entorno)
 //   GET  /tts?texto=…   → voz natural de Google (MP3, gratis, sin key)
 //   GET  /tts11?texto=… → voz natural ElevenLabs "Luisa"
-//                          (ELEVENLABS_API_KEY del entorno, gratis 10k caracteres/mes)
+//                          (ELEVENLABS_API_KEY del entorno)
 //   GET  /tts-edge?texto=… → voz natural Edge TTS (neural, gratis, sin key)
 
 export default {
-  async fetch(request) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     // ── TTS EDGE (neural, voz extremadamente natural) ──
@@ -48,14 +49,13 @@ export default {
       }
     }
 
-    // ── TTS ELEVENLABS · Luisa (voz natural de 32 idiomas) ──
+    // ── TTS ELEVENLABS · Luisa ──
     if (url.pathname === "/tts11") {
       const texto = url.searchParams.get("texto") || "";
       if (!texto) return new Response("Falta texto", { status: 400 });
-      const voz = (request.env && request.env.ELEVEN_VOICE_ID) || "1u9q7vX1Lcx74yAcFPt7";
-      const key = (request.env && request.env.ELEVENLABS_API_KEY) || "";
+      const voz = ((env && env.ELEVEN_VOICE_ID) || (request.env && request.env.ELEVEN_VOICE_ID)) || "1u9q7vX1Lcx74yAcFPt7";
+      const key = ((env && env.ELEVENLABS_API_KEY) || (request.env && request.env.ELEVENLABS_API_KEY)) || "";
       if (!key) {
-        // 400 = error de configuración: el navegador cambia a Google
         return new Response("Falta ELEVENLABS_API_KEY", { status: 400 });
       }
       try {
@@ -73,9 +73,6 @@ export default {
         );
         if (!r.ok) {
           const t = (await r.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 140);
-          // 4xx de ElevenLabs = error definitivo (key sin permiso, voz
-          // inexistente...): devolver el status real para que el navegador
-          // cambie a Google AL INSTANTE, sin reintentos inútiles
           const status = (r.status >= 400 && r.status < 500) ? r.status : 502;
           return new Response("Error ElevenLabs " + r.status + ": " + t, { status: status });
         }
@@ -105,7 +102,7 @@ export default {
 
     // ── PROXY GROQ · POST / ──
     const origin = request.headers.get("Origin") || "";
-    const permitido = (request.env && request.env.VIERNES_ORIGIN) || "";
+    const permitido = ((env && env.VIERNES_ORIGIN) || (request.env && request.env.VIERNES_ORIGIN)) || "";
     const ok =
       !permitido ||
       permitido.split(",").some((d) => d.trim() && origin.includes(d.trim())) ||
@@ -122,7 +119,7 @@ export default {
     // Tu API key: agrégala en Settings → Variables (Type: Secret)
     // con el nombre GROQ_API_KEY. NUNCA la pegues en este archivo
     // si vas a subirlo a GitHub (GitHub la revocarían).
-    const apiKey = (request.env && request.env.GROQ_API_KEY) || "";
+    const apiKey = ((env && env.GROQ_API_KEY) || (request.env && request.env.GROQ_API_KEY)) || "";
     if (!apiKey) {
       return new Response("Falta GROQ_API_KEY: agrégala en Settings → Variables (Type: Secret)", { status: 500, headers: cors(origin, true) });
     }
