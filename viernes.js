@@ -1098,6 +1098,12 @@ function enviarForm(e) {
 }
 function enviarTexto(t) { procesarComando(t); }
 
+// Alterna el panel de ajustes flotante
+function toggleAjustes() {
+  const panel = $("panelAjustes");
+  if (panel) panel.classList.toggle("hidden");
+}
+
 // ═══════════════════════════════════════════════════════════════
 // AJUSTES
 // ═══════════════════════════════════════════════════════════════

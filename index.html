@@ -198,6 +198,48 @@
   @keyframes latido { 0%,100%{ transform: scale(1);} 50%{ transform: scale(1.05);} }
   .latido { animation: latido 1.4s infinite; }
 
+  /* ═══ BOTÓN FLOTANTE DE AJUSTES ═══ */
+  .fab-settings {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: rgba(0,212,255,.12);
+    border: 1px solid rgba(0,212,255,.5);
+    color: #00D4FF;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 100;
+    box-shadow: 0 0 20px rgba(0,212,255,.3);
+    transition: all .2s;
+  }
+  .fab-settings:hover {
+    background: rgba(0,212,255,.25);
+    box-shadow: 0 0 30px rgba(0,212,255,.6);
+    transform: scale(1.05);
+  }
+  .fab-settings:active { transform: scale(0.92); }
+
+  .settings-panel {
+    position: fixed;
+    bottom: 90px;
+    right: 24px;
+    width: 320px;
+    background: rgba(6,14,26,.92);
+    border: 1px solid rgba(0,212,255,.22);
+    border-radius: 8px;
+    padding: 16px;
+    z-index: 100;
+    box-shadow: 0 0 40px rgba(0,212,255,.15);
+    backdrop-filter: blur(8px);
+  }
+  .settings-panel.hidden { display: none; }
+
   @media (max-width: 640px) {
     .orb { width: 240px; height: 240px; }
     .nucleo { inset: 71px; } .a2 { inset: 21px; } .a3 { inset: 41px; }
@@ -276,10 +318,18 @@
     </button>
   </form>
 
-  <!-- ═══ AJUSTES ═══ -->
-  <details class="w-full panel rounded-sm text-xs">
-    <summary class="px-4 py-2.5 cursor-pointer font-hud text-[11px] tracking-widest text-cyan-200 select-none"><i class="fa-solid fa-gear mr-2"></i>AJUSTES DEL SISTEMA</summary>
-    <div class="px-4 pb-4 pt-2 space-y-4">
+  <!-- Icono flotante de ajustes -->
+  <button id="btnAjustes" class="fab-settings" onclick="toggleAjustes()" title="Ajustes del sistema">
+    <i class="fa-solid fa-gear text-cyan-300"></i>
+  </button>
+
+  <!-- Panel de ajustes (oculto por defecto) -->
+  <div id="panelAjustes" class="settings-panel hidden">
+    <div class="flex justify-between items-center mb-3">
+      <div class="label-hud">AJUSTES DEL SISTEMA</div>
+      <button onclick="toggleAjustes()" class="text-cyan-400 hover:text-white">&times;</button>
+    </div>
+    <div class="space-y-4 text-xs">
       <label class="flex items-center justify-between gap-3">
         <span class="label-hud">🔊 Respuestas en voz</span>
         <input type="checkbox" id="ajVoz" onchange="guardarAjustes()" checked class="w-4 h-4">
@@ -289,7 +339,7 @@
         <input type="checkbox" id="ajVozNat" onchange="guardarAjustes()" checked class="w-4 h-4">
       </label>
       <label class="flex items-center justify-between gap-3">
-        <span class="label-hud">🎙️ Voz del sistema<br><span class="text-slate-500 text-[10px]">elegir una desactiva la natural</span></span>
+        <span class="label-hud">🎙️ Voz del sistema<br><span class="text-slate-500">elegir una desactiva la natural</span></span>
         <select id="ajVozSel" onchange="elegirVozLocal()" class="px-2 py-1 rounded-sm text-xs w-52"></select>
       </label>
       <label class="flex items-center justify-between gap-3">
@@ -308,23 +358,18 @@
           <option value="es-US">Español (EE.UU.)</option>
         </select>
       </label>
-      <div class="flex gap-2 pt-1">
+      <div class="flex gap-2 pt-2">
         <button onclick="diagnosticar()" class="btn-hud flex-1"><i class="fa-solid fa-stethoscope mr-1"></i>PROBAR CONEXIÓN</button>
         <button onclick="hablar('Hola, soy VIERNES. Tu asistente personal, a tus órdenes.')" class="btn-hud flex-1"><i class="fa-solid fa-volume-high mr-1"></i>PROBAR VOZ</button>
       </div>
-      <div class="pt-1">
+      <div class="pt-2">
         <button onclick="limpiarHistorial()" class="btn-hud w-full"><i class="fa-solid fa-trash mr-1"></i>BORRAR HISTORIAL</button>
       </div>
-      <div class="pt-1">
+      <div class="pt-2">
         <button onclick="forzarActualizacion()" class="btn-hud w-full" title="Descarta la caché y recarga"><i class="fa-solid fa-arrows-rotate mr-1"></i>FORZAR ACTUALIZACIÓN</button>
       </div>
     </div>
-  </details>
-
-  <p class="font-mono2 text-[10px] text-slate-500 text-center pb-4 leading-relaxed">
-    ⚠️ EL MICRÓFONO REQUIERE <b class="text-cyan-400">HTTPS</b> (O LOCALHOST) · CHROME / EDGE · DI <b class="text-cyan-300">"VIERNES"</b> ANTES DE CADA PEDIDO<br>
-    MANTÉN ESTA PESTAÑA ABIERTA PARA ESCUCHA CONTINUA
-  </p>
+  </div>
 </footer>
 
 <script src="viernes.js?v=14"></script>
