@@ -225,29 +225,30 @@ function cerrarModal(id) { const m = $(id); if (m) m.classList.remove("open"); }
 
 /* ==== AJUSTES UI ==== */
 function aplicarUI() {
-  $("setProvider").value = cfg.provider; $("setApiKey").value = cfg.apiKey;
-  $("setModel").value = cfg.model; $("setReasoning").value = cfg.reasoning;
-  $("setGroqVisionModel").value = cfg.groqVisionModel; $("setMaxTokens").value = cfg.maxTokens;
-  $("setWebSearch").checked = cfg.webSearch; $("setXSearch").checked = cfg.xSearch;
-  $("setVoiceEngine").value = cfg.voiceEngine; $("setXaiVoice").value = cfg.xaiVoice;
-  $("setXaiLang").value = cfg.xaiLang; $("setBrowserVoice").value = cfg.browserVoice;
-  $("setRate").value = cfg.rate; $("rateValue").textContent = cfg.rate.toFixed(2) + "×";
-  $("setPitch").value = cfg.pitch; $("pitchValue").textContent = cfg.pitch.toFixed(2);
-  $("setAutoSpeak").checked = cfg.autoSpeak; $("setSounds").checked = cfg.sounds;
-  $("setUserName").value = cfg.userName; $("setAltName").value = cfg.altName;
-  $("setWakeWords").value = cfg.wakeWords; $("setLanguage").value = cfg.language;
-  $("setFollowUp").value = cfg.followUp; $("followUpValue").textContent = cfg.followUp + " s";
-  $("setHandsFree").checked = cfg.handsFree; $("setAutoStartMic").checked = cfg.autoStartMic;
-  $("setImageDetail").value = cfg.imageDetail; $("setMaxImage").value = cfg.maxImage;
-  $("setAutoAttach").checked = cfg.autoAttach; $("setMirror").checked = cfg.mirror;
-  $("setMemory").checked = cfg.memory; $("setRememberKey").checked = cfg.rememberKey;
-  $("setPreferServerKey").checked = cfg.preferServerKey; $("setConnectionMode").value = cfg.connectionMode;
-  $("setBaseUrl").value = cfg.baseUrl; $("setProxyBase").value = cfg.proxyBase;
-  $("modelChip").textContent = cfg.model.split("/").pop();
-  $("tModel").textContent = cfg.model.split("/").pop();
-  $("aboutModel").textContent = cfg.model.split("/").pop();
-  $("aboutTransport").textContent = "GROQ";
-  $("tSearch").textContent = cfg.webSearch ? "ACTIVA" : "OFF";
+  const sv = (id, val) => { const el = $(id); if (el) el.value = val; };
+  const sc = (id, val) => { const el = $(id); if (el) el.checked = val; };
+  const st = (id, val) => { const el = $(id); if (el) el.textContent = val; };
+  sv("setProvider", cfg.provider); sv("setApiKey", cfg.apiKey);
+  sv("setModel", cfg.model); sv("setReasoning", cfg.reasoning);
+  sv("setGroqVisionModel", cfg.groqVisionModel); sv("setMaxTokens", cfg.maxTokens);
+  sc("setWebSearch", cfg.webSearch); sc("setXSearch", cfg.xSearch);
+  sv("setVoiceEngine", cfg.voiceEngine); sv("setXaiVoice", cfg.xaiVoice);
+  sv("setXaiLang", cfg.xaiLang); sv("setBrowserVoice", cfg.browserVoice);
+  sv("setRate", cfg.rate); st("rateValue", cfg.rate.toFixed(2) + "×");
+  sv("setPitch", cfg.pitch); st("pitchValue", cfg.pitch.toFixed(2));
+  sc("setAutoSpeak", cfg.autoSpeak); sc("setSounds", cfg.sounds);
+  sv("setUserName", cfg.userName); sv("setAltName", cfg.altName);
+  sv("setWakeWords", cfg.wakeWords); sv("setLanguage", cfg.language);
+  sv("setFollowUp", cfg.followUp); st("followUpValue", cfg.followUp + " s");
+  sc("setHandsFree", cfg.handsFree); sc("setAutoStartMic", cfg.autoStartMic);
+  sv("setImageDetail", cfg.imageDetail); sv("setMaxImage", cfg.maxImage);
+  sc("setAutoAttach", cfg.autoAttach); sc("setMirror", cfg.mirror);
+  sc("setMemory", cfg.memory); sc("setRememberKey", cfg.rememberKey);
+  sc("setPreferServerKey", cfg.preferServerKey); sv("setConnectionMode", cfg.connectionMode);
+  sv("setBaseUrl", cfg.baseUrl); sv("setProxyBase", cfg.proxyBase);
+  const mname = cfg.model.split("/").pop();
+  st("modelChip", mname); st("tModel", mname); st("aboutModel", mname);
+  st("aboutTransport", "GROQ"); st("tSearch", cfg.webSearch ? "ACTIVA" : "OFF");
 }
 
 function bindAjustes() {
