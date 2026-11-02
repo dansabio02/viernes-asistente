@@ -16,10 +16,37 @@
 //   GET  /tts?texto=…   → voz natural de Google (MP3, gratis, sin key)
 //   GET  /tts11?texto=… → voz natural ElevenLabs "Luisa"
 //                          (ELEVENLABS_API_KEY del entorno, gratis 10k caracteres/mes)
+//   GET  /tts-edge?texto=… → voz natural Edge TTS (neural, gratis, sin key)
 
 export default {
   async fetch(request) {
     const url = new URL(request.url);
+
+    // ── TTS EDGE (neural, voz extremadamente natural) ──
+    if (url.pathname === "/tts-edge") {
+      const texto = url.searchParams.get("texto") || "";
+      const voz = url.searchParams.get("voz") || "es-MX_DaliaNeural";
+      if (!texto) return new Response("Falta texto", { status: 400 });
+      try {
+        const g = "https://speech.platform.bing.com/cognitiveServices/speech/synthesize/readaloud/voices/" +
+          encodeURIComponent(voz) + "?text=" + encodeURIComponent(texto.slice(0, 400));
+        const r = await fetch(g, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edge/120.0.0.0",
+            "Accept": "*/*",
+            "Accept-Language": "es-ES,es;q=0.9,en;q=0.8"
+          }
+        });
+        if (!r.ok) {
+          return new Response("Error Edge TTS " + r.status, { status: 502 });
+        }
+        const resp = new Response(r.body, { status: r.status, headers: { "Content-Type": "audio/mpeg" } });
+        resp.headers.set("Access-Control-Allow-Origin", "*");
+        return resp;
+      } catch (e) {
+        return new Response("Error de TTS Edge: " + e.message, { status: 502 });
+      }
+    }
 
     // ── TTS ELEVENLABS · Luisa (voz natural de 32 idiomas) ──
     if (url.pathname === "/tts11") {

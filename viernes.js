@@ -337,6 +337,8 @@ let generacionVoz = 0; // cancela reproducciones antiguas
 
 // Voz natural: ELEVENLABS (Luisa) → GOOGLE → voz del sistema.
 // Descarga TODO el MP3 primero y lo convierte en object URLs:
+// Voz natural: EDGE TTS (neural, voz extremadamente natural) → GOOGLE de respaldo.
+// Descarga TODO el MP3 primero y lo convierte en object URLs:
 // UNA sola petición por fragmento y cero cortes de red durante
 // la reproducción (el audio ya está en memoria).
 async function hablarNatural(texto) {
@@ -346,14 +348,14 @@ async function hablarNatural(texto) {
   if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; }
   let urls = [];
   try {
-    let ruta = "/tts11"; // ElevenLabs primero; Google de respaldo
+    let ruta = "/tts-edge"; // Edge TTS neural primero; Google de respaldo
     const obtenerMP3 = async (frag) => {
       const control = new AbortController();
       const seguro = setTimeout(() => control.abort(), 12000);
       let r = await fetch(base + ruta + "?texto=" + encodeURIComponent(frag), { signal: control.signal });
       clearTimeout(seguro);
-      if (!r.ok && ruta === "/tts11" && r.status < 500 && r.status !== 429) {
-        // error definitivo de ElevenLabs (401/403/404...): → Google
+      if (!r.ok && ruta === "/tts-edge" && r.status < 500 && r.status !== 429) {
+        // error definitivo de Edge (400/401/403/404...): → Google
         ruta = "/tts";
         r = await fetch(base + ruta + "?texto=" + encodeURIComponent(frag));
       }
@@ -362,8 +364,8 @@ async function hablarNatural(texto) {
         await new Promise((d) => setTimeout(d, 400));
         r = await fetch(base + ruta + "?texto=" + encodeURIComponent(frag));
       }
-      // sigue fallando en ElevenLabs → Google para el resto
-      if (!r.ok && ruta === "/tts11") {
+      // sigue fallando en Edge → Google para el resto
+      if (!r.ok && ruta === "/tts-edge") {
         ruta = "/tts";
         r = await fetch(base + ruta + "?texto=" + encodeURIComponent(frag));
       }
