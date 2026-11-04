@@ -74,12 +74,9 @@
     <main class="layout">
       <section class="stage" aria-label="Núcleo de Viernes">
         <div class="orb-stage" id="orbStage">
-          <canvas id="brainCanvas" width="660" height="400"></canvas>
+          <canvas id="brainCanvas" width="720" height="460"></canvas>
           <div class="orb-halo" aria-hidden="true"></div>
           <div class="orb-ring ring-outer" aria-hidden="true"></div>
-          <div class="orb-ring ring-mid" aria-hidden="true"></div>
-          <div class="orb-ring ring-dashed" aria-hidden="true"></div>
-          <div class="orb-ticks" aria-hidden="true"></div>
         </div>
         <div class="orb-sub" id="orbSub">SISTEMA EN ESPERA</div>
         <div class="caption-box" id="captionBox">
@@ -87,7 +84,7 @@
             <span class="caption-label" id="captionLabel">TRANSCRIPCIÓN EN VIVO</span>
             <span class="caption-wave" id="captionWave"><i></i><i></i><i></i><i></i><i></i></span>
           </div>
-          <p id="liveCaption">Pulse <kbd>ACTIVAR</kbd> y diga «Viernes» para empezar a hablar.</p>
+          <p id="liveCaption">Pulse <kbd>ACTIVAR</kbd>: con escucha continua basta con hablarle de frente.</p>
         </div>
         <div class="stage-actions">
           <button class="stage-btn" id="btnStop" disabled title="Detener" aria-label="Detener"><svg><use href="#i-stop"/></svg><span>DETENER</span></button>
@@ -96,33 +93,6 @@
             <svg class="mic-off-icon"><use href="#i-mic-off"/></svg>
           </button>
           <button class="stage-btn" id="btnQuickVision" title="Analizar cámara" aria-label="Analizar cámara"><svg><use href="#i-eye"/></svg><span>¿QUÉ VES?</span></button>
-        </div>
-      </section>
-
-      <section class="console" aria-label="Consola de conversación">
-        <header class="panel-head">
-          <div class="panel-title"><span class="live-dot"></span>CONVERSACIÓN</div>
-          <div class="panel-tools">
-            <span class="turn-count" id="turnCount">0 TURNOS</span>
-            <button class="icon-btn tiny" id="btnClear" title="Limpiar" aria-label="Limpiar conversación"><svg><use href="#i-trash"/></svg></button>
-          </div>
-        </header>
-        <div class="messages" id="messages" aria-live="polite"></div>
-        <div class="composer">
-          <div class="attach-preview" id="attachPreview" hidden>
-            <img id="attachImage" alt="Imagen adjunta">
-            <div class="attach-info"><span>IMAGEN LISTA</span><small id="attachMeta">Cámara</small></div>
-            <button class="icon-btn tiny" id="btnRemoveAttach" aria-label="Quitar imagen"><svg><use href="#i-x"/></svg></button>
-          </div>
-          <div class="composer-row">
-            <button class="icon-btn" id="btnAttach" title="Capturar imagen" aria-label="Adjuntar imagen"><svg><use href="#i-camera"/></svg></button>
-            <textarea id="messageInput" rows="1" maxlength="12000" placeholder="Escriba una orden o pregunta…" aria-label="Mensaje"></textarea>
-            <button class="send-btn" id="btnSend" title="Enviar" aria-label="Enviar"><svg><use href="#i-send"/></svg></button>
-          </div>
-          <div class="composer-hint">
-            <span><kbd>Enter</kbd> enviar</span>
-            <span class="transport-hint" id="transportHint">Groq en línea</span>
-          </div>
         </div>
       </section>
 
@@ -188,6 +158,12 @@
   </div>
 
   <div class="toasts" id="toasts" aria-live="assertive"></div>
+
+  <div class="importante" id="importante" role="alert">
+    <button class="icon-btn tiny glass imp-close" id="btnImportClose" aria-label="Cerrar alerta"><svg><use href="#i-x"/></svg></button>
+    <div class="imp-kicker">⚠ IMPORTANTE</div>
+    <p id="importText"></p>
+  </div>
 
   <div class="modal settings-modal" id="settingsModal" role="dialog" aria-modal="true">
     <div class="settings-card">
@@ -398,7 +374,7 @@
       <header class="settings-head"><div><div class="onboard-kicker">MANUAL</div><h2>Cómo trabajar con Viernes</h2></div><button class="icon-btn" id="btnCloseHelp" aria-label="Cerrar"><svg><use href="#i-x"/></svg></button></header>
       <div class="help-body">
         <div class="help-block"><h3><span>01</span> Despertarla</h3><p>Pulse <strong>ACTIVAR</strong> y diga <strong>«Viernes»</strong>.</p></div>
-        <div class="help-block"><h3><span>02</span> Conversar</h3><p>Pregunte lo que quiera. Viernes usa Groq para razonar.</p></div>
+        <div class="help-block"><h3><span>02</span> Conversar</h3><p>Hable de frente. VIERNES razona con Groq; solo sube a pantalla lo importante.</p></div>
         <div class="help-block"><h3><span>03</span> Visión</h3><p>Pulse <strong>¿Qué ves?</strong> o el icono de cámara para analizar.</p></div>
         <div class="help-block"><h3><span>04</span> Correo</h3><p>Conecte Gmail en <strong>Configuración → Correo</strong> y pida «revisa mi correo».</p></div>
       </div>

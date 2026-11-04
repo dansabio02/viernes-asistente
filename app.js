@@ -19,6 +19,7 @@ let cfg = { ...DEFAULTS };
 let recognition = null, listening = false, speaking = false, busy = false;
 let ultimoTranscript = "", ultimoTranscriptTime = 0, finHablaTime = 0, audioActual = null, pendientePeticion = 0;
 let hablarGen = 0, bufferFin = "", bufferTimer = null, textoEnCurso = "";
+let brainGen = 0; // token del render del cerebro (permite reemplazo en caliente)
 let historial = [], contextoImagen = null, cameraStream = null;
 let synth = window.speechSynthesis;
 
@@ -720,15 +721,30 @@ async function initMailUI() {
   actualizarMailEstado();
 }
 
+/* ==== Aviso IMPORTANTE en pantalla (lo demás solo se escucha) ==== */
+let impTimer = null;
+function notificarImportante(texto) {
+  const el = $("importante"), tx = $("importText"); if (!el || !tx) return;
+  tx.textContent = texto;
+  el.classList.add("open");
+  log("IMPORTANTE en pantalla", "warn");
+  clearTimeout(impTimer);
+  impTimer = setTimeout(() => el.classList.remove("open"), 18000); // se retira solo
+}
+/* Criterio de importancia: algo largo (merece leerse), del correo/borrador,
+   o una pregunta que exige su decisión. Lo trivial solo se oye. */
+function esImportante(resp) {
+  const r = (resp || "").trim();
+  if (r.length > 170) return true;
+  if (/borrador|correo|enviar|envío|urgente|importante|recordar|alerta|priorit|clima|revisar/i.test(r)) return true;
+  if (r.includes("¿") && r.length > 80) return true; // pregunta que exige su decisión
+  return false;
+}
+
 async function enviarTexto(texto) {
   texto = (texto || "").trim();
   if (!texto && !contextoImagen) return;
   busy = true; textoEnCurso = texto; $("btnStop").disabled = false; setEstado("speaking");
-  agregarMensaje("user", texto || "[imagen]", contextoImagen);
-  const n = parseInt($("turnCount").textContent) || 0; $("turnCount").textContent = (n+1) + " TURNOS";
-  const ty = document.createElement("div"); ty.className = "msg msg-vi";
-  ty.innerHTML = '<div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div>';
-  $("messages").appendChild(ty);
   log("Usuario: " + (texto || "[imagen]"), "ok");
   const t0 = Date.now();
   try {
@@ -748,19 +764,21 @@ async function enviarTexto(texto) {
       // Solo la IA pasa por normalización de trato (los comandos locales ya traen el suyo)
       resp = prepararRespuesta(resp);
     }
-    ty.remove(); agregarMensaje("vi", resp);
     historial.push({ role: "user", content: texto || "[imagen]" }); historial.push({ role: "assistant", content: resp });
     if (cfg.memory) { try { localStorage.setItem("viernes_hist", JSON.stringify(historial.slice(-30))); } catch (e) {} }
     $("tLatency").textContent = (Date.now() - t0) + " ms";
     $("tTokens").textContent = "≈" + Math.round(resp.length / 4);
     $("tTransport").textContent = "GROQ"; $("tVoice").textContent = "BROWSER";
     ultimaRespuesta = Date.now();
+    // En pantalla SOLO lo importante; el resto se oye y se va
+    if (esImportante(resp)) notificarImportante(resp);
     hablar(resp);
   } catch (e) {
-    ty.remove(); agregarMensaje("vi", "⚠️ " + e.message);
+    notificarImportante("⚠️ " + e.message);
     log(e.message, "error"); setEstado(listening ? "listening" : "standby");
   } finally {
-    busy = false; textoEnCurso = ""; $("btnStop").disabled = true; contextoImagen = null; $("attachPreview").hidden = true;
+    busy = false; textoEnCurso = ""; $("btnStop").disabled = true; contextoImagen = null;
+    const ap = $("attachPreview"); if (ap) ap.hidden = true;
   }
 }
 
@@ -795,8 +813,8 @@ async function visionPregunta(prompt) {
   const img = await capturarCamara();
   if (!img) { toast("Activa la cámara primero"); return; }
   contextoImagen = img;
-  $("attachImage").src = img; $("attachMeta").textContent = "Cámara · captura";
-  $("attachPreview").hidden = false;
+  const ap = $("attachPreview");
+  if (ap) { $("attachImage").src = img; $("attachMeta").textContent = "Cámara · captura"; ap.hidden = false; }
   enviarTexto(prompt);
 }
 
@@ -888,7 +906,7 @@ function bindAjustes() {
   $("btnClearKey").addEventListener("click", () => { cfg.apiKey = ""; $("setApiKey").value = ""; save(); log("Clave borrada","warn"); });
   $("btnTestVoice").addEventListener("click", () => hablar("Hola " + cfg.userName + ", soy Viernes."));
   $("btnExportData").addEventListener("click", () => { const b = new Blob([JSON.stringify({cfg,historial},null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download="viernes_datos.json"; a.click(); });
-  $("btnClearHistory").addEventListener("click", () => { historial = []; $("messages").innerHTML = ""; localStorage.removeItem("viernes_hist"); log("Historial borrado","ok"); });
+  $("btnClearHistory").addEventListener("click", () => { historial = []; localStorage.removeItem("viernes_hist"); log("Historial borrado","ok"); });
   $("btnResetAll").addEventListener("click", () => { if (confirm("¿Restaurar todo?")) { localStorage.removeItem("viernes_cfg"); localStorage.removeItem("viernes_hist"); location.reload(); } });
   $("setKeyToggle").addEventListener("click", () => { const i = $("setApiKey"); i.type = i.type === "password" ? "text" : "password"; });
   // Bloqueo por frase secreta
@@ -954,47 +972,131 @@ function starfield() {
   resize(); draw(); addEventListener("resize", resize);
 }
 
-// Orbe cerebro: red neuronal (neuronas + sinapsis con pulsos viajeros)
+// CEREBRO neuronal: silueta anatómica (dos hemisferios + hendidura + cerebelo)
+// rellena de neuronas conectadas por sinapsis con pulsos viajeros.
+// Estado: cian en escucha, ámbar al responder, tenue en reposo.
 function brainNetwork() {
   const cv = $("brainCanvas"); if (!cv) return;
   const ctx = cv.getContext("2d"); const W = cv.width, H = cv.height;
-  const cx = W/2, cy = H/2;
+  const miGen = ++brainGen; // detiene cualquier bucle anterior sobre el mismo lienzo
+  const cx = W / 2, cy = H / 2;
+  const BW = W * 0.37, BH = H * 0.40; // radios del cerebro
+
+  // Silueta: PERFIL LATERAL del cerebro (lóbulo frontal, surco lateral,
+  // cerebelo y tronco encefálico). Las neuronas nacen solo dentro de ella.
+  const silueta = new Path2D();
+  silueta.moveTo(cx + BW * 0.10, cy - BH * 0.98);                                  // vértice superior
+  silueta.bezierCurveTo(cx + BW * 0.70, cy - BH * 0.95, cx + BW * 1.05, cy - BH * 0.50, cx + BW * 1.02, cy - BH * 0.05); // frente
+  silueta.bezierCurveTo(cx + BW * 0.98, cy + BH * 0.28, cx + BW * 0.72, cy + BH * 0.40, cx + BW * 0.55, cy + BH * 0.42); // sien / surco lateral
+  silueta.bezierCurveTo(cx + BW * 0.42, cy + BH * 0.55, cx + BW * 0.34, cy + BH * 0.62, cx + BW * 0.20, cy + BH * 0.66); // base frontal
+  silueta.bezierCurveTo(cx + BW * 0.10, cy + BH * 0.88, cx + BW * 0.04, cy + BH * 0.98, cx - BW * 0.02, cy + BH * 1.06); // tronco encefálico
+  silueta.bezierCurveTo(cx - BW * 0.07, cy + BH * 0.97, cx - BW * 0.10, cy + BH * 0.92, cx - BW * 0.14, cy + BH * 0.90); // vuelta del tallo
+  silueta.bezierCurveTo(cx - BW * 0.10, cy + BH * 0.80, cx - BW * 0.12, cy + BH * 0.72, cx - BW * 0.22, cy + BH * 0.76); // cerebelo (bulto)
+  silueta.bezierCurveTo(cx - BW * 0.34, cy + BH * 0.84, cx - BW * 0.42, cy + BH * 0.68, cx - BW * 0.44, cy + BH * 0.55); // surco retro
+  silueta.bezierCurveTo(cx - BW * 0.50, cy + BH * 0.28, cx - BW * 1.02, cy + BH * 0.22, cx - BW * 1.00, cy - BH * 0.25); // nuca / occipital
+  silueta.bezierCurveTo(cx - BW * 0.97, cy - BH * 0.62, cx - BW * 0.55, cy - BH * 0.97, cx + BW * 0.10, cy - BH * 0.98); // corona
+  silueta.closePath();
+
+  // Surco lateral (curva interior que separa el lóbulo temporal)
+  const surco = new Path2D();
+  surco.moveTo(cx + BW * 0.96, cy + BH * 0.12);
+  surco.quadraticCurveTo(cx + BW * 0.45, cy + BH * 0.22, cx + BW * 0.16, cy + BH * 0.58);
+
+  // Neuronas dentro de la silueta (muestreo por rechazo)
+  const dentro = (x, y) => ctx.isPointInPath(silueta, x, y);
   const nodes = [];
-  for (let i = 0; i < 96; i++) {
-    const side = i % 2 === 0 ? -1 : 1;
-    const ang = Math.random() * Math.PI * 2;
-    // dos hemisferios apaisados: más anchos (X) y menos altos (Y)
-    const x = cx + side * W * 0.23 + Math.cos(ang) * W * 0.24;
-    const y = cy + Math.sin(ang) * H * 0.44;
-    nodes.push({ x, y, r: 1.2 + Math.random() * 1.8 });
+  let intentos = 0;
+  while (nodes.length < 110 && intentos < 4000) {
+    intentos++;
+    const x = cx + (Math.random() * 2 - 1) * BW * 1.05, y = cy + (Math.random() * 2 - 1) * BH * 1.05;
+    if (!dentro(x, y)) continue;
+    nodes.push({ x, y, r: 1.1 + Math.random() * 1.7, glow: 0, glob: Math.random() * 6.28 });
   }
+  // Sinapsis: solo entre neuronas cercanas (distancia anatómica)
   const links = [];
-  for (let i = 0; i < nodes.length; i++) for (let j = i+1; j < nodes.length; j++) {
+  for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
     const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
-    const d = Math.sqrt(dx*dx + dy*dy);
-    if (d < 95) links.push({ a: i, b: j, p: Math.random() });
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < 88) links.push({ a: i, b: j, p: Math.random(), v: 0.005 + Math.random() * 0.012 });
   }
-  const activo = () => document.body.getAttribute("data-state") !== "standby";
-  function draw() {
-    ctx.clearRect(0,0,W,H);
-    const g = activo() ? 0.9 : 0.35;
+
+  function draw(t) {
+    if (miGen !== brainGen) return; // un cerebro nuevo tomó el lienzo
+    t = t || 0;
+    ctx.clearRect(0, 0, W, H);
+    const st = document.body.getAttribute("data-state") || "standby";
+    const activo = st !== "standby";
+    const col = st === "speaking" ? [255, 179, 0] : [72, 233, 255];
+    const g = activo ? 0.95 : 0.38;
+    const C = (a) => `rgba(${col[0]},${col[1]},${col[2]},${a})`;
+
+    // contorno del cerebro + relleno tenue
+    ctx.save();
+    ctx.strokeStyle = C(0.5 * g); ctx.lineWidth = 1.7;
+    ctx.shadowColor = C(0.6); ctx.shadowBlur = activo ? 14 : 6;
+    ctx.stroke(silueta);
+    const grad = ctx.createRadialGradient(cx, cy - BH * 0.3, 10, cx, cy, BW * 1.2);
+    grad.addColorStop(0, C(0.10 * g)); grad.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = grad; ctx.fill(silueta);
+    ctx.restore();
+
+    // surco lateral del lóbulo temporal
+    ctx.strokeStyle = C(0.35 * g); ctx.lineWidth = 1.3;
+    ctx.stroke(surco);
+
+    // circunvoluciones (giros) — pliegues orgánicos que respiran, dentro de la silueta
+    ctx.save();
+    ctx.clip(silueta);
+    ctx.strokeStyle = C(0.16 * g); ctx.lineWidth = 1;
+    for (let i = 0; i < 7; i++) {
+      const yy = cy - BH * 0.82 + (i * BH * 1.25) / 7;
+      const amp = 12 + Math.sin(t / 1500 + i * 1.7) * 3;
+      const x0 = cx - BW * (i % 2 ? 0.92 : 0.80), x1 = cx + BW * (i % 2 ? 0.86 : 0.98);
+      ctx.beginPath();
+      ctx.moveTo(x0, yy);
+      ctx.bezierCurveTo(cx - BW * 0.4, yy - amp, cx - BW * 0.05, yy + amp, cx + BW * 0.3, yy - amp * 0.5);
+      ctx.bezierCurveTo(cx + BW * 0.55, yy - amp, cx + BW * 0.75, yy + amp * 0.4, x1, yy);
+      ctx.stroke();
+    }
+    // lámina del cerebelo (3 arquitos al fondo-abajo)
+    for (let i = 0; i < 3; i++) {
+      ctx.strokeStyle = C(0.22 * g);
+      ctx.beginPath();
+      ctx.arc(cx - BW * 0.24, cy + BH * (0.62 + i * 0.09), BW * 0.18, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // sinapsis con pulsos viajeros
     for (const l of links) {
       const a = nodes[l.a], b = nodes[l.b];
-      ctx.strokeStyle = `rgba(72,233,255,${0.12*g})`;
-      ctx.lineWidth = 0.6;
-      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
-      l.p += 0.004 * (activo() ? 2 : 1); if (l.p > 1) l.p = 0;
-      const px = a.x + (b.x - a.x)*l.p, py = a.y + (b.y - a.y)*l.p;
-      ctx.fillStyle = `rgba(72,233,255,${0.85*g})`;
-      ctx.beginPath(); ctx.arc(px, py, 2, 0, 7); ctx.fill();
+      ctx.strokeStyle = C(0.10 * g); ctx.lineWidth = 0.55;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      l.p += l.v * (activo ? 2.2 : 1);
+      if (l.p > 1) { l.p = 0; nodes[l.b].glow = 1; } // el pulso enciende la neurona destino
+      const px = a.x + (b.x - a.x) * l.p, py = a.y + (b.y - a.y) * l.p;
+      ctx.fillStyle = C(0.9 * g);
+      ctx.beginPath(); ctx.arc(px, py, 1.6, 0, 7); ctx.fill();
     }
+
+    // neuronas (cuerpo + halo de activación)
     for (const n of nodes) {
-      ctx.fillStyle = `rgba(72,233,255,${0.65*g})`;
+      if (n.glow > 0.01) n.glow *= 0.96;
+      if (activo && Math.random() < 0.0025) n.glow = 1; // chispas espontáneas al trabajar
+      const latido = 0.75 + Math.sin(t / 900 + n.glob) * 0.25;
+      ctx.fillStyle = C(0.55 * g * latido);
       ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 7); ctx.fill();
+      if (n.glow > 0.05) {
+        const rg = 6 + n.glow * 10;
+        const gr = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, rg);
+        gr.addColorStop(0, C(0.8 * n.glow)); gr.addColorStop(1, C(0));
+        ctx.fillStyle = gr;
+        ctx.beginPath(); ctx.arc(n.x, n.y, rg, 0, 7); ctx.fill();
+      }
     }
     requestAnimationFrame(draw);
   }
-  draw();
+  requestAnimationFrame(draw);
 }
 
 function init() {
@@ -1020,11 +1122,9 @@ function init() {
   $("btnPower").addEventListener("click", () => listening ? desactivarMicrofono() : activarMicrofono());
   $("btnMic").addEventListener("click", () => listening ? desactivarMicrofono() : activarMicrofono());
   $("btnStop").addEventListener("click", () => { hablarGen++; if (synth) synth.cancel(); if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; } speaking = false; busy = false; setEstado(listening?"listening":"standby"); });
-  $("btnSend").addEventListener("click", () => { const v = $("messageInput").value; $("messageInput").value = ""; enviarTexto(v); });
-  $("messageInput").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const v = $("messageInput").value; $("messageInput").value = ""; enviarTexto(v); } });
-  $("btnClear").addEventListener("click", () => { $("messages").innerHTML = ""; historial = []; });
-  $("btnAttach").addEventListener("click", async () => { const img = await capturarCamara(); if (img) { contextoImagen = img; $("attachImage").src = img; $("attachMeta").textContent = "Cámara"; $("attachPreview").hidden = false; } });
-  $("btnRemoveAttach").addEventListener("click", () => { contextoImagen = null; $("attachPreview").hidden = true; });
+  // (entró por voz, sale por voz: consola de texto retirada)
+  const bc = $("btnClear"); if (bc) bc.addEventListener("click", () => { historial = []; });
+  const bcx = $("btnImportClose"); if (bcx) bcx.addEventListener("click", () => { clearTimeout(impTimer); const el = $("importante"); if (el) el.classList.remove("open"); });
   $("btnQuickVision").addEventListener("click", () => visionPregunta("Describe con detalle lo que ves."));
   document.querySelectorAll(".vision-quick button").forEach(b => b.addEventListener("click", () => visionPregunta(b.dataset.visionPrompt)));
   $("btnCameraToggle").addEventListener("click", toggleCamara);
