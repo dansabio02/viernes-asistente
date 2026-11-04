@@ -313,6 +313,254 @@ async function comandoClima(texto) {
   return await climaDe(geo.lat, geo.lon, geo.nombre);
 }
 
+/* ==== CORREO (Gmail) ==== */
+let correosActuales = [];        // lista clasificada de correos sin leer
+let correoSeleccionado = null;   // correo abierto/leído
+let borradorActual = null;       // respuesta redactada pendiente de enviar
+
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+function nombreRemitente(from) {
+  const m = (from || "").match(/^([^<]+)</);
+  return (m ? m[1] : (from || "")).trim().replace(/["']/g, "") || "desconocido";
+}
+function extraerEmail(from) {
+  const m = (from || "").match(/<([^>]+)>/);
+  return m ? m[1] : (from || "").trim();
+}
+
+function esComandoCorreo(texto) {
+  const n = normalizar(texto);
+  return /revisa (mi |el |mis |los )?correo|revisar correo|correos nuevos|que correos|nuevos correos|checa (el |mi )?correo|checar correo|resumen (de |del )?(mi |el )?correo|resume (mi |el )?correo|(lee|leeme|abre) (el |mi |los |la |las )?(correo|mensaje|mail)|(responde|contesta|redacta) (el |los |la |las |mi |una |un )?(correo|mensaje|mail)|redacta respuesta|haz una respuesta|escribe respuesta|guarda borrador|guardar borrador|(envia|enviar|envialo|enviala|mandalo|mandala)( la respuesta| el correo| el mensaje)?$/.test(n.trim());
+}
+
+async function comandoCorreo(texto) {
+  const V = window.ViernesMail;
+  if (!V || !esComandoCorreo(texto)) return null;
+  const n = normalizar(texto);
+  // "enviar/guardar" solo aplican si hay un borrador pendiente; si no, dejar pasar a Groq
+  const esEnviar = /(^|\s)(envia|enviar|envialo|enviala|mandalo|mandala|si|dale|ok|claro)(\s|$)/.test(n) && borradorActual;
+  const esGuardar = /guarda borrador|guardar borrador/.test(n) && borradorActual;
+  if (!V.isConnected()) {
+    return tratoInicio() + ", aún no tiene el correo conectado. Abra Ajustes, pestaña Correo, y toque Conectar Gmail.";
+  }
+  if (esEnviar) return await enviarBorrador();
+  if (esGuardar) return await guardarBorrador();
+  if (/resumen (de |del )?(mi |el )?correo|resume (mi |el )?correo/.test(n)) return await resumenCorreo();
+  if (/(lee|leeme|abre) (el |mi |los |la |las )?(correo|mensaje|mail)/.test(n)) return await leerCorreo(texto);
+  if (/(responde|contesta|redacta)/.test(n)) return await redactarRespuesta();
+  return await revisarCorreo();
+}
+
+async function clasificarCorreos(metas) {
+  const lineas = metas.map((m, i) => i + ") De: " + m.from + " | Asunto: " + (m.subject || "(sin asunto)") + " | Vista: " + (m.snippet || "").slice(0, 70)).join("\n");
+  const prompt = "Clasifica estos correos por importancia (1=irrelevante, 10=urgente/crítico). Responde SOLO JSON válido, sin texto adicional, con este formato: [{\"i\":<índice>,\"puntaje\":<1-10>,\"motivo\":\"<una frase corta>\"}]\n" + lineas;
+  const raw = await groqChat([
+    { role: "system", content: "Eres un clasificador de correos. Respondes únicamente JSON válido." },
+    { role: "user", content: prompt },
+  ]);
+  try {
+    const m = raw.match(/\[[\s\S]*\]/);
+    const arr = JSON.parse(m ? m[0] : raw);
+    if (Array.isArray(arr)) return arr;
+  } catch (e) {}
+  return metas.map((_, i) => ({ i, puntaje: 5, motivo: "" }));
+}
+
+async function obtenerCorreos() {
+  const V = window.ViernesMail;
+  const ids = await V.listUnread(12);
+  if (!ids.length) { correosActuales = []; renderMailList([]); return []; }
+  const metas = [];
+  for (const m of ids) { try { metas.push(await V.getMessageMeta(m.id)); } catch (e) {} }
+  const clasif = await clasificarCorreos(metas);
+  correosActuales = metas.map((m, i) => {
+    const c = clasif.find(x => x.i === i);
+    return { ...m, puntaje: c ? c.puntaje : 5, motivo: c ? c.motivo : "" };
+  }).sort((a, b) => b.puntaje - a.puntaje);
+  renderMailList(correosActuales);
+  return correosActuales;
+}
+
+async function revisarCorreo() {
+  const V = window.ViernesMail;
+  const lista = await obtenerCorreos();
+  abrirModal("mailModal");
+  if (!lista.length) return tratoInicio() + ", no tiene correos sin leer. Su bandeja está al día.";
+  const importantes = lista.filter(x => (x.puntaje || 0) >= 7);
+  let resp = tratoInicio() + ", tiene " + lista.length + " correos sin leer";
+  if (importantes.length) {
+    resp += ", " + importantes.length + " importante" + (importantes.length > 1 ? "s" : "") + ": ";
+    resp += importantes.slice(0, 3).map(x => "de " + nombreRemitente(x.from) + " sobre " + (x.subject || "sin asunto")).join("; ") + ".";
+  } else {
+    resp += " y ninguno urgente.";
+  }
+  return resp;
+}
+
+async function resumenCorreo() {
+  const lista = await obtenerCorreos();
+  if (!lista.length) return tratoInicio() + ", no tiene correos sin leer.";
+  const importantes = lista.filter(x => (x.puntaje || 0) >= 7);
+  if (!importantes.length) return tratoInicio() + ", de " + lista.length + " correos nuevos, ninguno requiere su atención.";
+  return tratoInicio() + ", lo más importante: " + importantes.slice(0, 3).map(x => "de " + nombreRemitente(x.from) + ", " + (x.motivo || x.subject || "sin asunto")).join("; ") + ".";
+}
+
+async function leerCorreo(texto) {
+  const V = window.ViernesMail;
+  if (!correosActuales.length) return tratoInicio() + ", primero revise su correo. Diga 'Viernes, revisa mi correo'.";
+  const n = normalizar(texto);
+  const num = n.match(/(?:numero|numero|correo)\s*(\d+)/);
+  let objetivo = null;
+  if (num) objetivo = correosActuales[parseInt(num[1]) - 1];
+  if (!objetivo) {
+    for (const c of correosActuales) {
+      const de = normalizar(nombreRemitente(c.from));
+      if (de && de.length > 1 && n.includes(de)) { objetivo = c; break; }
+    }
+  }
+  if (!objetivo) objetivo = correosActuales[0];
+  const full = await V.getMessage(objetivo.id);
+  correoSeleccionado = full;
+  renderMailDetail(full);
+  abrirModal("mailModal");
+  const cuerpo = (full.body || full.snippet || "").slice(0, 350);
+  return tratoInicio() + ", correo de " + nombreRemitente(full.from) + ". Asunto: " + (full.subject || "sin asunto") + "." + (cuerpo ? " Dice: " + cuerpo : "");
+}
+
+async function redactarRespuesta() {
+  if (!correoSeleccionado) {
+    return tratoInicio() + ", primero lea un correo. Diga 'Viernes, revisa mi correo' y luego 'lee el correo'.";
+  }
+  const c = correoSeleccionado;
+  const prompt = "Redacta una respuesta de correo en español de México a este mensaje.\nDe: " + c.from + "\nAsunto: " + (c.subject || "") + "\nCuerpo: " + (c.body || c.snippet || "").slice(0, 1200) + "\n\nResponde de forma breve, profesional y cordial. Devuelve SOLO el texto del cuerpo de la respuesta (sin encabezados, sin 'Asunto:', sin firma).";
+  const cuerpo = await groqChat([
+    { role: "system", content: "Eres VIERNES, asistente personal. Redactas respuestas de correo en español de México, breves y cordiales." },
+    { role: "user", content: prompt },
+  ]);
+  borradorActual = { to: extraerEmail(c.from), subject: "Re: " + (c.subject || ""), body: cuerpo.trim(), id: c.id };
+  renderMailDraft(borradorActual);
+  abrirModal("mailModal");
+  return tratoInicio() + ", redacté la respuesta para " + nombreRemitente(c.from) + ". Dice: " + cuerpo.trim() + ". ¿La envío?";
+}
+
+async function enviarBorrador() {
+  const V = window.ViernesMail;
+  if (!borradorActual) return tratoInicio() + ", no hay ninguna respuesta pendiente. Diga 'responde el correo' primero.";
+  const b = borradorActual;
+  await V.sendMail(b.to, b.subject, b.body);
+  if (b.id) { try { await V.markRead(b.id); } catch (e) {} }
+  borradorActual = null; correoSeleccionado = null;
+  renderMailList(correosActuales); renderMailDetail(null);
+  return tratoInicio() + ", respuesta enviada a " + nombreRemitente(b.to) + ".";
+}
+
+async function guardarBorrador() {
+  const V = window.ViernesMail;
+  if (!borradorActual) return tratoInicio() + ", no hay ninguna respuesta pendiente.";
+  await V.createDraft(borradorActual.to, borradorActual.subject, borradorActual.body);
+  return tratoInicio() + ", guardé el borrador en Gmail para que lo revise cuando quiera.";
+}
+
+/* ── render de la bandeja ── */
+function renderMailList(lista) {
+  const el = $("mailList"); if (!el) return;
+  const emp = $("mailEmpty");
+  if (!lista.length) { el.innerHTML = ""; if (emp) emp.textContent = "No hay correos sin leer."; return; }
+  if (emp) emp.textContent = "";
+  el.innerHTML = lista.map((c, i) => {
+    const hot = (c.puntaje || 0) >= 7;
+    return `<button class="mail-item" data-i="${i}">
+      <div class="mail-item-top"><span class="mail-from">${escapeHtml(nombreRemitente(c.from))}</span><span class="mail-score${hot ? " hot" : ""}">${c.puntaje || "—"}</span></div>
+      <div class="mail-subject">${escapeHtml(c.subject || "(sin asunto)")}</div>
+      <div class="mail-snippet">${escapeHtml((c.snippet || "").slice(0, 90))}</div>
+      ${c.motivo ? `<div class="mail-motivo">${escapeHtml(c.motivo)}</div>` : ""}
+    </button>`;
+  }).join("");
+  el.querySelectorAll(".mail-item").forEach(b => b.addEventListener("click", () => abrirCorreoIndice(parseInt(b.dataset.i))));
+}
+
+async function abrirCorreoIndice(i) {
+  const V = window.ViernesMail;
+  const meta = correosActuales[i]; if (!meta) return;
+  const full = await V.getMessage(meta.id);
+  correoSeleccionado = full;
+  renderMailDetail(full);
+}
+
+function renderMailDetail(mail) {
+  const el = $("mailDetail"); if (!el) return;
+  if (!mail) { el.innerHTML = '<p class="mail-empty">Seleccione un correo.</p>'; return; }
+  el.innerHTML = `
+    <div class="mail-open">
+      <div class="mail-open-head">
+        <div><div class="mail-open-from">${escapeHtml(nombreRemitente(mail.from))}</div><div class="mail-open-email">${escapeHtml(mail.from)}</div></div>
+        <span class="mail-open-date">${escapeHtml(mail.date || "")}</span>
+      </div>
+      <div class="mail-open-subject">${escapeHtml(mail.subject || "(sin asunto)")}</div>
+      <div class="mail-open-body">${escapeHtml((mail.body || mail.snippet || "Sin contenido.").slice(0, 2000))}</div>
+      <div class="mail-actions">
+        <button class="btn btn-secondary" id="btnMailReply"><svg><use href="#i-send"/></svg> Responder</button>
+      </div>
+    </div>`;
+  const rb = $("btnMailReply"); if (rb) rb.addEventListener("click", async () => { const t = await redactarRespuesta(); hablar(t); });
+}
+
+function renderMailDraft(d) {
+  const el = $("mailDetail"); if (!el) return;
+  el.innerHTML = `
+    <div class="mail-open">
+      <div class="mail-open-subject" style="color:var(--accent-2)">Borrador de respuesta</div>
+      <div class="mail-open-meta">Para: <b>${escapeHtml(d.to)}</b> · Asunto: <b>${escapeHtml(d.subject)}</b></div>
+      <div class="mail-open-body">${escapeHtml(d.body)}</div>
+      <div class="mail-actions">
+        <button class="btn btn-primary" id="btnMailSend"><svg><use href="#i-send"/></svg> Enviar</button>
+        <button class="btn btn-secondary" id="btnMailDraft"><svg><use href="#i-download"/></svg> Guardar borrador</button>
+        <button class="btn btn-ghost" id="btnMailCancel"><svg><use href="#i-x"/></svg> Descartar</button>
+      </div>
+    </div>`;
+  const s = $("btnMailSend"); if (s) s.addEventListener("click", async () => { const t = await enviarBorrador(); hablar(t); });
+  const g = $("btnMailDraft"); if (g) g.addEventListener("click", async () => { const t = await guardarBorrador(); hablar(t); });
+  const c = $("btnMailCancel"); if (c) c.addEventListener("click", () => { borradorActual = null; renderMailDetail(correoSeleccionado); });
+}
+
+/* ── estado + UI de ajustes ── */
+function actualizarMailEstado() {
+  const V = window.ViernesMail; if (!V) return;
+  const st = $("gmailStatus"), sub = $("mailSub"), dis = $("btnDisconnectGmail");
+  const conectado = V.isConnected();
+  if (st) st.textContent = conectado ? "Estado: conectado como " + V.getMe() + "." : "Estado: sin conectar.";
+  if (sub) sub.textContent = conectado ? ("Conectado: " + V.getMe()) : "Sin conectar";
+  if (dis) dis.hidden = !conectado;
+}
+
+async function initMailUI() {
+  const V = window.ViernesMail; if (!V) return;
+  const cid = $("setGmailClientId");
+  if (cid) { cid.value = V.getClientId(); cid.addEventListener("change", () => V.setClientId(cid.value)); }
+  const orig = $("gmailOrigin"); if (orig) orig.textContent = location.origin;
+  const redir = $("gmailRedirect"); if (redir) redir.textContent = V.getRedirectUri();
+  const conn = $("btnConnectGmail");
+  if (conn) conn.addEventListener("click", async () => {
+    if (cid) V.setClientId(cid.value);
+    if (!V.getClientId()) { toast("Pegue primero el Client ID de Google."); return; }
+    try { await V.authorize(); } catch (e) { toast("Error: " + e.message); log(e.message, "error"); }
+  });
+  const dis = $("btnDisconnectGmail");
+  if (dis) dis.addEventListener("click", async () => { await V.disconnect(); actualizarMailEstado(); toast("Correo desconectado."); });
+  const ref = $("btnMailRefresh");
+  if (ref) ref.addEventListener("click", async () => { try { const t = await revisarCorreo(); hablar(t); } catch (e) { toast(e.message); } });
+  const close = $("btnCloseMail");
+  if (close) close.addEventListener("click", () => cerrarModal("mailModal"));
+  // procesar callback OAuth si volvemos de Google
+  try {
+    const ok = await V.handleCallback();
+    if (ok) { actualizarMailEstado(); toast("Correo conectado correctamente."); log("Gmail conectado", "ok"); }
+  } catch (e) { log("Gmail: " + e.message, "error"); toast("Gmail: " + e.message); }
+  actualizarMailEstado();
+}
+
 async function enviarTexto(texto) {
   texto = (texto || "").trim();
   if (!texto && !contextoImagen) return;
@@ -328,6 +576,8 @@ async function enviarTexto(texto) {
     // Comando local instantáneo (hora, fecha, saludo, estado) — sin IA
     let resp;
     if (!contextoImagen) resp = comandoLocal(texto);
+    // Correo (Gmail): leer, priorizar, redactar y enviar
+    if (!resp && !contextoImagen) { try { resp = await comandoCorreo(texto); } catch (e) { resp = tratoInicio() + ", " + e.message; } }
     // Clima en vivo (Open-Meteo)
     if (!resp && !contextoImagen && /temperatura|clima|tiempo hace|que tiempo|grados|lluvia|humedad|calor|frio|nevando/.test(normalizar(texto))) {
       try { resp = await comandoClima(texto); } catch (e) { log("Clima: " + e.message, "warn"); }
@@ -595,7 +845,7 @@ function init() {
   try { Object.assign(cfg, JSON.parse(localStorage.getItem("viernes_cfg") || "{}")); } catch (e) {}
   try { historial = JSON.parse(localStorage.getItem("viernes_hist") || "[]"); } catch (e) {}
   starfield(); brainNetwork(); actualizarReloj(); setInterval(actualizarReloj, 1000);
-  aplicarUI(); bindAjustes(); initEagleUI();
+  aplicarUI(); bindAjustes(); initEagleUI(); initMailUI();
   // La clave está en el Worker de Cloudflare: NO bloquear con onboarding.
   document.body.setAttribute("data-ready","true");
   cerrarModal("onboarding");

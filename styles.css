@@ -246,5 +246,34 @@ body::before{content:"";position:fixed;inset:0;background:radial-gradient(ellips
 #fatal h2{font-family:'Orbitron',sans-serif;margin:0}
 #fatal pre{white-space:pre-wrap}
 
+/* ── Correo (Gmail) ── */
+.mail-card{width:860px;max-width:94vw;max-height:88vh;background:rgba(8,14,26,.97);border:1px solid var(--border);border-radius:14px;box-shadow:0 0 60px rgba(0,0,0,.6);display:flex;flex-direction:column;overflow:hidden}
+.mail-sub{font-family:'Share Tech Mono',monospace;font-size:.72rem;color:var(--muted);margin:0;letter-spacing:.06em}
+.mail-head-actions{display:flex;align-items:center;gap:10px}
+.btn.small{padding:6px 12px;font-size:.72rem}
+.mail-body{flex:1;display:grid;grid-template-columns:340px 1fr;overflow:hidden;min-height:0}
+.mail-list{overflow-y:auto;border-right:1px solid var(--border);background:rgba(0,0,0,.2);padding:8px}
+.mail-detail{overflow-y:auto;padding:18px 20px;min-height:0}
+.mail-empty{color:var(--muted);font-size:.9rem;line-height:1.6}
+.mail-item{display:block;width:100%;text-align:left;padding:12px;margin-bottom:8px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.03);color:var(--text);cursor:pointer;transition:all .15s}
+.mail-item:hover{border-color:var(--accent-2);background:rgba(72,233,255,.06)}
+.mail-item-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.mail-from{font-weight:700;font-size:.88rem;color:#fff}
+.mail-score{font-family:'Share Tech Mono',monospace;font-size:.72rem;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:1px 7px;flex-shrink:0}
+.mail-score.hot{color:#000;background:var(--amber);border-color:var(--amber);font-weight:800}
+.mail-subject{font-size:.85rem;color:var(--accent-2);margin-top:3px}
+.mail-snippet{font-size:.8rem;color:var(--muted);margin-top:3px;line-height:1.4}
+.mail-motivo{font-size:.76rem;color:var(--amber);margin-top:5px;font-style:italic}
+.mail-open-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.mail-open-from{font-weight:800;font-size:1.05rem;color:#fff}
+.mail-open-email{font-size:.78rem;color:var(--muted)}
+.mail-open-date{font-family:'Share Tech Mono',monospace;font-size:.72rem;color:var(--muted);white-space:nowrap}
+.mail-open-subject{font-size:1.05rem;color:var(--accent-2);margin:10px 0;font-weight:700}
+.mail-open-meta{font-size:.82rem;color:var(--muted);margin-bottom:10px}
+.mail-open-body{font-size:.92rem;line-height:1.65;color:var(--text);white-space:pre-wrap;word-break:break-word;background:rgba(0,0,0,.25);border:1px solid var(--border);border-radius:10px;padding:14px}
+.mail-actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+
+@media (max-width:700px){.mail-body{grid-template-columns:1fr;grid-template-rows:auto 1fr}.mail-list{border-right:none;border-bottom:1px solid var(--border);max-height:40vh}}
+
 @media (max-width:1100px){.layout{grid-template-columns:340px 1fr 260px}.orb-stage{width:292px;height:177px}}
 @media (max-width:900px){.layout{grid-template-columns:1fr;grid-template-rows:auto 1fr;overflow-y:auto}.sidebar{display:none}.stage{border-right:none;border-bottom:1px solid var(--border)}.orb-stage{width:min(660px,calc(100vw - 48px));height:calc(min(660px,100vw - 48px) * 400 / 660)}}
