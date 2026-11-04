@@ -554,11 +554,12 @@ function brainNetwork() {
   const ctx = cv.getContext("2d"); const W = cv.width, H = cv.height;
   const cx = W/2, cy = H/2;
   const nodes = [];
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < 96; i++) {
     const side = i % 2 === 0 ? -1 : 1;
     const ang = Math.random() * Math.PI * 2;
-    const x = cx + side * W * 0.20 + Math.cos(ang) * W * 0.22;
-    const y = cy + Math.sin(ang) * H * 0.36;
+    // dos hemisferios apaisados: más anchos (X) y menos altos (Y)
+    const x = cx + side * W * 0.23 + Math.cos(ang) * W * 0.24;
+    const y = cy + Math.sin(ang) * H * 0.44;
     nodes.push({ x, y, r: 1.2 + Math.random() * 1.8 });
   }
   const links = [];
