@@ -18,6 +18,7 @@ let passUnlockTime = 0;
 let cfg = { ...DEFAULTS };
 let recognition = null, listening = false, speaking = false, busy = false;
 let ultimoTranscript = "", ultimoTranscriptTime = 0, finHablaTime = 0, audioActual = null, pendientePeticion = 0;
+let hablarGen = 0, bufferFin = "", bufferTimer = null, textoEnCurso = "";
 let historial = [], contextoImagen = null, cameraStream = null;
 let synth = window.speechSynthesis;
 
@@ -107,22 +108,43 @@ function iniciarReconocimiento() {
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const r = e.results[i]; if (r.isFinal) fin += r[0].transcript + " "; else inter += r[0].transcript;
     }
-    if (inter) $("liveCaption").textContent = inter;
-    if (fin) {
-      fin = fin.trim();
-      // Deduplicación: Android Chrome re-entrega el mismo resultado final al reiniciar la sesión
-      const clave = normalizar(fin);
-      const ahora = Date.now();
-      if (clave && clave === ultimoTranscript && ahora - ultimoTranscriptTime < 4000) {
-        $("liveCaption").textContent = ""; return;
-      }
-      ultimoTranscript = clave; ultimoTranscriptTime = ahora;
-      procesarVoz(fin);
-    }
+    // Mientras usted sigue hablando, la frase se acumula: solo se procesa tras una pausa
+    if (inter) { $("liveCaption").textContent = inter; programarVuelco(); }
+    if (fin) acumularFinal(fin.trim());
   };
   recognition.onerror = (e) => {
     if (e.error === "not-allowed" || e.error === "service-not-allowed") { listening = false; setEstado("standby"); log("Micrófono denegado", "error"); }
   };
+}
+
+/* Une los trozos en que Chrome parte una misma frase y la procesa completa tras la pausa */
+function acumularFinal(texto) {
+  bufferFin = bufferFin ? bufferFin + " " + texto : texto;
+  programarVuelco();
+}
+function programarVuelco() {
+  clearTimeout(bufferTimer);
+  bufferTimer = setTimeout(volcarBuffer, 800);
+}
+function volcarBuffer() {
+  const completo = (bufferFin || "").trim();
+  bufferFin = "";
+  if (!completo) return;
+  $("liveCaption").textContent = "";
+  const clave = normalizar(completo);
+  const ahora = Date.now();
+  // Deduplicación: Android Chrome re-entrega la misma frase al reiniciar la sesión
+  if (clave && clave === ultimoTranscript && ahora - ultimoTranscriptTime < 8000) return;
+  // Variación de la misma frase mientras Viernes piensa: descartar (evita doble respuesta)
+  if (busy && textoEnCurso && textoSimilar(completo, textoEnCurso)) return;
+  ultimoTranscript = clave; ultimoTranscriptTime = ahora;
+  procesarVoz(completo);
+}
+function textoSimilar(a, b) {
+  const A = normalizar(a).split(/\s+/).filter(Boolean), B = normalizar(b).split(/\s+/).filter(Boolean);
+  if (!A.length || !B.length) return false;
+  let inter = 0; A.forEach(w => { if (B.includes(w)) inter++; });
+  return inter / Math.max(A.length, B.length) >= 0.6;
 }
 async function activarMicrofono() {
   // Recrear el reconocedor en cada activación para evitar estado "used"
@@ -163,7 +185,7 @@ function procesarVoz(texto) {
   // Guardas: Viernes está hablando o acaba de hablar (eco del altavoz del teléfono).
   // busy (pensando) NO bloquea: si Chrome parte la frase, el resto llega mientras piensa.
   if (speaking) return;
-  if (Date.now() - finHablaTime < 1200) return;
+  if (Date.now() - finHablaTime < 700) return;
   const n = texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const w = cfg.wakeWords.split(",").map(s => s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""));
   const tieneWake = w.some(k => n.includes(k));
@@ -204,12 +226,15 @@ function reanudarEscucha() {
     iniciarReconocimiento();
     try { recognition.start(); } catch (e) {}
     setEstado("listening");
-  }, 350);
+  }, 250);
 }
 
-// Voz hiperrealista: Google TTS vía el Worker (con fallback a la voz del navegador)
+// Voz hiperrealista: Google TTS vía el Worker (con fallback a la voz del navegador).
+// Token de generación: si dos respuestas compiten, SOLO la última tiene la voz;
+// el bucle de la respuesta anterior queda neutralizado (nunca hay dos voces solapadas).
 async function hablar(texto) {
   if (!cfg.autoSpeak || !texto) { setEstado(listening ? "listening" : "standby"); return; }
+  const miGen = ++hablarGen;
   // Una sola voz: cancelar cualquier reproducción previa (Audio y síntesis)
   if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; }
   if (synth) { try { synth.cancel(); } catch (e) {} }
@@ -222,6 +247,7 @@ async function hablar(texto) {
   let tocadas = 0;
   try {
     for (let i = 0; i < partes.length; i++) {
+      if (miGen !== hablarGen) return; // una respuesta nueva cortó esta
       const r = await fetch(WORKER_URL + "/tts?texto=" + encodeURIComponent(partes[i]));
       if (!r.ok) throw new Error("tts " + r.status);
       const blob = await r.blob();
@@ -234,34 +260,27 @@ async function hablar(texto) {
         a.onended = fin; a.onerror = fin;
         a.play().catch(fin);
       });
+      if (miGen !== hablarGen) return;
       tocadas++;
     }
+  } catch (e) {}
+  if (miGen !== hablarGen) return;
+  if (tocadas >= partes.length) {
     speaking = false; busy = false; finHablaTime = Date.now();
     reanudarEscucha();
     return;
-  } catch (e) {}
+  }
   // Fallback a la voz del navegador SOLO con el texto que falta (nunca repite lo ya dicho)
   const restantes = partes.slice(tocadas).join(" ");
-  if (tocadas > 0 && restantes) hablarLocalRestante(restantes);
+  if (tocadas > 0 && restantes) sintetizar(restantes, miGen);
   else if (tocadas > 0) { speaking = false; busy = false; finHablaTime = Date.now(); reanudarEscucha(); }
-  else hablarLocal(texto);
+  else sintetizar(texto, miGen);
 }
 
-function hablarLocalRestante(texto) {
-  if (!synth) { speaking = false; busy = false; reanudarEscucha(); return; }
-  const u = new SpeechSynthesisUtterance(texto);
-  u.lang = cfg.language; u.rate = cfg.rate; u.pitch = cfg.pitch;
-  const voces = synth.getVoices();
-  const v = voces.find(x => x.name === cfg.browserVoice) || voces.find(x => x.lang && x.lang.startsWith(cfg.language.split("-")[0])) || voces[0];
-  if (v) u.voice = v;
-  u.onend = u.onerror = () => { speaking = false; busy = false; finHablaTime = Date.now(); reanudarEscucha(); };
-  synth.speak(u);
-}
-
-function hablarLocal(texto) {
-  if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; }
-  if (!synth) { speaking = false; busy = false; reanudarEscucha(); return; }
-  if (synth.speaking) synth.cancel();
+/* Síntesis del navegador con asentamiento: en Android Chrome, speak() inmediato
+   tras cancel() puede reproducir también la cola anterior (voces duplicadas). */
+function sintetizar(texto, miGen) {
+  if (!synth) { speaking = false; busy = false; finHablaTime = Date.now(); reanudarEscucha(); return; }
   speaking = true; busy = true; setEstado("speaking");
   detenerEscuchaParaHablar();
   const u = new SpeechSynthesisUtterance(texto);
@@ -269,8 +288,22 @@ function hablarLocal(texto) {
   const voces = synth.getVoices();
   const v = voces.find(x => x.name === cfg.browserVoice) || voces.find(x => x.lang && x.lang.startsWith(cfg.language.split("-")[0])) || voces[0];
   if (v) u.voice = v;
-  u.onend = u.onerror = () => { speaking = false; busy = false; finHablaTime = Date.now(); reanudarEscucha(); };
-  synth.speak(u);
+  u.onend = u.onerror = () => {
+    if (miGen !== hablarGen) return;
+    speaking = false; busy = false; finHablaTime = Date.now(); reanudarEscucha();
+  };
+  try { synth.cancel(); } catch (e) {}
+  setTimeout(() => {
+    if (miGen !== hablarGen) return;
+    try { if (synth.speaking || synth.pending) synth.cancel(); } catch (e) {}
+    synth.speak(u);
+  }, 90);
+}
+
+function hablarLocal(texto) {
+  const miGen = ++hablarGen; // corta cualquier reproducción en curso
+  if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; }
+  sintetizar(texto, miGen);
 }
 
 // Keepalive: Chrome corta la sesión sin disparar onend tras varios ciclos.
@@ -628,7 +661,7 @@ async function initMailUI() {
 async function enviarTexto(texto) {
   texto = (texto || "").trim();
   if (!texto && !contextoImagen) return;
-  busy = true; $("btnStop").disabled = false; setEstado("speaking");
+  busy = true; textoEnCurso = texto; $("btnStop").disabled = false; setEstado("speaking");
   agregarMensaje("user", texto || "[imagen]", contextoImagen);
   const n = parseInt($("turnCount").textContent) || 0; $("turnCount").textContent = (n+1) + " TURNOS";
   const ty = document.createElement("div"); ty.className = "msg msg-vi";
@@ -662,7 +695,7 @@ async function enviarTexto(texto) {
     ty.remove(); agregarMensaje("vi", "⚠️ " + e.message);
     log(e.message, "error"); setEstado(listening ? "listening" : "standby");
   } finally {
-    busy = false; $("btnStop").disabled = true; contextoImagen = null; $("attachPreview").hidden = true;
+    busy = false; textoEnCurso = ""; $("btnStop").disabled = true; contextoImagen = null; $("attachPreview").hidden = true;
   }
 }
 
@@ -910,7 +943,7 @@ function init() {
   // listeners principales
   $("btnPower").addEventListener("click", () => listening ? desactivarMicrofono() : activarMicrofono());
   $("btnMic").addEventListener("click", () => listening ? desactivarMicrofono() : activarMicrofono());
-  $("btnStop").addEventListener("click", () => { if (synth) synth.cancel(); if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; } speaking = false; busy = false; setEstado(listening?"listening":"standby"); });
+  $("btnStop").addEventListener("click", () => { hablarGen++; if (synth) synth.cancel(); if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; } speaking = false; busy = false; setEstado(listening?"listening":"standby"); });
   $("btnSend").addEventListener("click", () => { const v = $("messageInput").value; $("messageInput").value = ""; enviarTexto(v); });
   $("messageInput").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const v = $("messageInput").value; $("messageInput").value = ""; enviarTexto(v); } });
   $("btnClear").addEventListener("click", () => { $("messages").innerHTML = ""; historial = []; });
