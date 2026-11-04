@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#03070d">
+  <meta name="theme-color" content="#02050b">
   <meta name="description" content="Viernes: asistente personal con IA de Groq, visión por cámara y voz natural.">
   <title>VIERNES · Asistente del Señor Daniel</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpolygon points='32,4 57,18 57,46 32,60 7,46 7,18' fill='none' stroke='%2348e9ff' stroke-width='3'/%3E%3Ccircle cx='32' cy='32' r='9' fill='%2348e9ff'/%3E%3C/svg%3E">
@@ -12,7 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800&family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body data-state="standby" data-ready="false">
+<body data-state="standby" data-ready="true">
   <svg class="svg-sprite" aria-hidden="true" focusable="false">
     <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 0 0 3.5-3.5V6a3.5 3.5 0 1 0-7 0v6a3.5 3.5 0 0 0 3.5 3.5Z"/><path d="M5.5 11.5v.5a6.5 6.5 0 0 0 13 0v-.5M12 18.5V22M8.5 22h7"/></symbol>
     <symbol id="i-mic-off" viewBox="0 0 24 24"><path d="M9 9v3a3.5 3.5 0 0 0 5.3 3M15 10V6a3.5 3.5 0 0 0-6.4-2M5.5 11.5v.5a6.5 6.5 0 0 0 10.4 5.1M12 18.5V22M8.5 22h7"/><path d="M3 3l18 18"/></symbol>
@@ -56,11 +56,9 @@
           <h1>VIERNES</h1>
         </div>
       </div>
-      <div class="topbar-center">
-        <div class="status-pill" id="statusPill">
-          <span class="status-dot"></span>
-          <span id="statusText">EN ESPERA</span>
-        </div>
+      <div class="status-pill" id="statusPill">
+        <span class="status-dot"></span>
+        <span id="statusText">EN ESPERA</span>
       </div>
       <div class="topbar-right">
         <div class="clock" aria-label="Hora local">
@@ -83,6 +81,7 @@
           <div class="orb-ring ring-dashed" aria-hidden="true"></div>
           <div class="orb-ticks" aria-hidden="true"></div>
         </div>
+        <div class="orb-sub" id="orbSub">SISTEMA EN ESPERA</div>
         <div class="caption-box" id="captionBox">
           <div class="caption-head">
             <span class="caption-label" id="captionLabel">TRANSCRIPCIÓN EN VIVO</span>
@@ -91,18 +90,18 @@
           <p id="liveCaption">Pulse <kbd>ACTIVAR</kbd> y diga «Viernes» para empezar a hablar.</p>
         </div>
         <div class="stage-actions">
+          <button class="stage-btn" id="btnStop" disabled title="Detener" aria-label="Detener"><svg><use href="#i-stop"/></svg><span>DETENER</span></button>
           <button class="mic-btn" id="btnMic" title="Micrófono" aria-label="Activar micrófono">
             <svg class="mic-on-icon"><use href="#i-mic"/></svg>
             <svg class="mic-off-icon"><use href="#i-mic-off"/></svg>
           </button>
-          <button class="stage-btn" id="btnStop" disabled title="Detener" aria-label="Detener"><svg><use href="#i-stop"/></svg><span>DETENER</span></button>
           <button class="stage-btn" id="btnQuickVision" title="Analizar cámara" aria-label="Analizar cámara"><svg><use href="#i-eye"/></svg><span>¿QUÉ VES?</span></button>
         </div>
       </section>
 
       <section class="console" aria-label="Consola de conversación">
         <header class="panel-head">
-          <div class="panel-title"><span class="live-dot"></span>TRANSMISIÓN</div>
+          <div class="panel-title"><span class="live-dot"></span>CONVERSACIÓN</div>
           <div class="panel-tools">
             <span class="turn-count" id="turnCount">0 TURNOS</span>
             <button class="icon-btn tiny" id="btnClear" title="Limpiar" aria-label="Limpiar conversación"><svg><use href="#i-trash"/></svg></button>
@@ -117,13 +116,12 @@
           </div>
           <div class="composer-row">
             <button class="icon-btn" id="btnAttach" title="Capturar imagen" aria-label="Adjuntar imagen"><svg><use href="#i-camera"/></svg></button>
-            <textarea id="messageInput" rows="1" maxlength="12000" placeholder="Escriba una orden o haga una pregunta…" aria-label="Mensaje"></textarea>
+            <textarea id="messageInput" rows="1" maxlength="12000" placeholder="Escriba una orden o pregunta…" aria-label="Mensaje"></textarea>
             <button class="send-btn" id="btnSend" title="Enviar" aria-label="Enviar"><svg><use href="#i-send"/></svg></button>
           </div>
           <div class="composer-hint">
             <span><kbd>Enter</kbd> enviar</span>
-            <span><kbd>Espacio</kbd> micrófono</span>
-            <span class="transport-hint" id="transportHint">Groq</span>
+            <span class="transport-hint" id="transportHint">Groq en línea</span>
           </div>
         </div>
       </section>
@@ -183,75 +181,13 @@
       <div class="footer-left"><span class="footer-mark"></span><span>VIERNES · NÚCLEO DE ASISTENCIA PERSONAL</span></div>
       <div class="footer-right">
         <span><svg><use href="#i-shield"/></svg> Cámara bajo demanda</span>
-        <span><svg><use href="#i-key"/></svg> Clave almacenada localmente</span>
+        <span><svg><use href="#i-key"/></svg> Clave en el servidor</span>
         <span id="footerVersion">v1.0</span>
       </div>
     </footer>
   </div>
 
   <div class="toasts" id="toasts" aria-live="assertive"></div>
-
-  <div class="modal onboarding" id="onboarding" role="dialog" aria-modal="true">
-    <div class="onboard-card">
-      <div class="onboard-visual">
-        <div class="onboard-orb"><span class="onboard-ring r1"></span><span class="onboard-ring r2"></span><span class="onboard-ring r3"></span><span class="onboard-core"></span></div>
-        <p class="onboard-quote">“A su servicio, Señor Daniel.”</p>
-        <div class="onboard-status" id="onboardStatus">
-          <span data-check="browser"><i></i> Reconocimiento de voz</span>
-          <span data-check="secure"><i></i> Contexto seguro</span>
-          <span data-check="speech"><i></i> Síntesis de voz</span>
-          <span data-check="camera"><i></i> Cámara disponible</span>
-        </div>
-      </div>
-      <div class="onboard-body">
-        <div class="onboard-kicker">INICIALIZACIÓN DEL NÚCLEO</div>
-        <h2>Bienvenido, Señor Daniel.</h2>
-        <p class="onboard-lead">Soy <strong>Viernes</strong>, su asistente personal con <strong>Groq</strong>. Diga <strong>«Viernes»</strong> para despertarme.</p>
-        <div class="onboard-steps">
-          <div class="onboard-step">
-            <span class="step-num">01</span>
-            <div>
-              <h3>Conecte el núcleo</h3>
-              <div class="field-group">
-                <label for="onboardProvider">Proveedor de IA</label>
-                <select id="onboardProvider"><option value="groq" selected>Groq · clave gsk_…</option><option value="xai">xAI Grok · clave xai-…</option></select>
-              </div>
-              <div class="field-group">
-                <label for="onboardKey" id="onboardKeyLabel">Clave API de Groq</label>
-                <div class="input-with-action">
-                  <input type="password" id="onboardKey" placeholder="gsk_…" autocomplete="off" spellcheck="false">
-                  <button class="icon-btn tiny" id="onboardKeyToggle" type="button" aria-label="Mostrar clave"><svg><use href="#i-eye"/></svg></button>
-                </div>
-                <div class="field-help"><a href="https://console.groq.com/keys" id="onboardKeyLink" target="_blank" rel="noopener">Obtener clave <svg><use href="#i-external"/></svg></a></div>
-              </div>
-            </div>
-          </div>
-          <div class="onboard-step">
-            <span class="step-num">02</span>
-            <div>
-              <h3>¿Cómo debo llamarle?</h3>
-              <div class="two-fields">
-                <div class="field-group"><label for="onboardName">Tratamiento principal</label><input type="text" id="onboardName" value="Señor Daniel" maxlength="40"></div>
-                <div class="field-group"><label for="onboardAlt">Alternativo</label><input type="text" id="onboardAlt" value="Jefe" maxlength="40"></div>
-              </div>
-            </div>
-          </div>
-          <div class="onboard-step">
-            <span class="step-num">03</span>
-            <div>
-              <h3>Active los sentidos</h3>
-              <label class="check-row"><input type="checkbox" id="onboardMic" checked><span>Activar micrófono</span></label>
-              <label class="check-row"><input type="checkbox" id="onboardRemember" checked><span>Recordar la clave en este equipo</span></label>
-            </div>
-          </div>
-        </div>
-        <div class="onboard-actions" style="display:flex;gap:10px;margin-top:12px">
-          <button class="btn btn-primary" id="onboardStart"><svg><use href="#i-power"/></svg> INICIALIZAR</button>
-          <button class="btn btn-ghost" id="onboardSkip">Explorar sin conectar</button>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <div class="modal settings-modal" id="settingsModal" role="dialog" aria-modal="true">
     <div class="settings-card">
@@ -270,21 +206,21 @@
         </nav>
         <div class="settings-panels">
           <section class="settings-panel active" data-panel="connection">
-            <h3>Núcleo de inferencia</h3>
-            <p class="panel-desc">Viernes usa <strong>Groq</strong> para razonar. Pegue su clave y elija el modelo.</p>
+            <h3>Núcleo de inferencia <span class="badge subtle" id="modelChip">gpt-oss</span></h3>
+            <p class="panel-desc">Viernes razona con <strong>Groq</strong> a través del servidor proxy. La clave nunca toca este dispositivo.</p>
             <div class="field-group"><label for="setProvider">Proveedor de IA</label><select id="setProvider"><option value="groq">Groq · gsk_…</option><option value="xai">xAI Grok · xai-…</option></select></div>
             <div class="field-group">
-              <label for="setApiKey" id="setApiKeyLabel">Clave API de Groq</label>
-              <div class="input-with-action"><input type="password" id="setApiKey" placeholder="gsk_…" autocomplete="off" spellcheck="false"><button class="icon-btn tiny" id="setKeyToggle" type="button" aria-label="Mostrar clave"><svg><use href="#i-eye"/></svg></button></div>
+              <label for="setApiKey" id="setApiKeyLabel">Clave API de Groq (opcional)</label>
+              <div class="input-with-action"><input type="password" id="setApiKey" placeholder="gsk_… (opcional: se usa el servidor)" autocomplete="off" spellcheck="false"><button class="icon-btn tiny" id="setKeyToggle" type="button" aria-label="Mostrar clave"><svg><use href="#i-eye"/></svg></button></div>
               <div class="field-help"><a href="https://console.groq.com/keys" id="setKeyLink" target="_blank" rel="noopener">Gestionar claves <svg><use href="#i-external"/></svg></a><button class="link-btn" id="btnClearKey">Borrar clave</button></div>
               <label class="check-row compact"><input type="checkbox" id="setRememberKey"><span>Recordar la clave</span></label>
-              <label class="check-row compact"><input type="checkbox" id="setPreferServerKey"><span>Usar clave del servidor local</span></label>
+              <label class="check-row compact"><input type="checkbox" id="setPreferServerKey"><span>Usar clave del servidor</span></label>
             </div>
             <div class="two-fields">
               <div class="field-group"><label for="setConnectionMode">Modo de conexión</label><select id="setConnectionMode"><option value="auto">Automático</option><option value="proxy">Proxy local</option><option value="direct">Directo</option></select></div>
               <div class="field-group"><label for="setBaseUrl">URL base</label><input type="url" id="setBaseUrl" value="https://api.groq.com/openai/v1"></div>
             </div>
-            <div class="field-group"><label for="setProxyBase">URL del proxy local</label><input type="url" id="setProxyBase" placeholder="http://127.0.0.1:8787/api"></div>
+            <div class="field-group"><label for="setProxyBase">URL del proxy</label><input type="url" id="setProxyBase" placeholder="https://viernes-proxy…workers.dev"></div>
             <div class="two-fields">
               <div class="field-group"><label for="setModel">Modelo de texto</label><input type="text" id="setModel" list="modelSuggestions"><datalist id="modelSuggestions"><option value="openai/gpt-oss-20b"></option><option value="openai/gpt-oss-120b"></option><option value="qwen/qwen3-32b"></option></datalist></div>
               <div class="field-group"><label for="setReasoning">Razonamiento</label><select id="setReasoning"><option value="low">Bajo</option><option value="medium">Medio</option><option value="high">Alto</option></select></div>
@@ -328,25 +264,25 @@
               <div class="field-group"><label for="setFollowUp">Ventana de seguimiento <output id="followUpValue">12 s</output></label><input type="range" id="setFollowUp" min="0" max="30" step="1"></div>
               <div class="field-group"><label>Escucha</label><label class="check-row compact"><input type="checkbox" id="setHandsFree"><span>Escucha continua</span></label><label class="check-row compact"><input type="checkbox" id="setAutoStartMic"><span>Activar al abrir</span></label></div>
             </div>
-            <div class="info-box" style="margin-top:16px;border-color:rgba(255,180,0,.4)">
+            <div class="info-box amber">
               <svg><use href="#i-shield"/></svg>
-              <div style="flex:1">
-                <p style="font-weight:700;color:var(--amber)">Bloqueo por frase secreta</p>
-                <p>VIERNES solo responde si dices la frase de acceso (o ya está desbloqueada). Bloquea a extraños sin registro.</p>
-                <label class="check-row compact" style="margin-top:6px"><input type="checkbox" id="setPassLock"><span>Activar bloqueo por frase secreta</span></label>
-                <div class="two-fields" style="margin-top:6px">
+              <div class="info-body">
+                <p class="info-title amber">Bloqueo por frase secreta</p>
+                <p>VIERNES solo responde si dice la frase de acceso. Bloquea a extraños sin registro.</p>
+                <label class="check-row compact"><input type="checkbox" id="setPassLock"><span>Activar bloqueo por frase secreta</span></label>
+                <div class="two-fields">
                   <div class="field-group"><label for="setPassphrase">Frase de acceso</label><input type="text" id="setPassphrase" placeholder="ej. papá llegó" maxlength="40" spellcheck="false"></div>
                   <div class="field-group"><label for="setPassTimeout">Auto-bloqueo <output id="passTimeoutValue">10 min</output></label><input type="range" id="setPassTimeout" min="1" max="60" step="1"></div>
                 </div>
-                <p id="passEstado" style="font-size:.78rem;color:var(--muted)">Estado: desactivado</p>
+                <p id="passEstado" class="pass-estado">Estado: desactivado</p>
               </div>
             </div>
-            <div class="info-box" style="margin-top:16px">
+            <div class="info-box">
               <svg><use href="#i-mic"/></svg>
-              <div style="flex:1">
-                <p style="font-weight:700;color:var(--accent-2)">Reconocimiento de hablante (Picovoice Eagle)</p>
+              <div class="info-body">
+                <p class="info-title">Reconocimiento de hablante (Picovoice Eagle)</p>
                 <p>Identifica quién habla. Necesita un AccessKey gratuito de <a href="https://console.picovoice.ai" target="_blank" rel="noopener">console.picovoice.ai</a>.</p>
-                <div class="field-group" style="margin-top:8px">
+                <div class="field-group">
                   <label for="pvAccessKey">AccessKey de Picovoice</label>
                   <input type="password" id="pvAccessKey" placeholder="Pega tu AccessKey aquí" autocomplete="off" spellcheck="false">
                 </div>
@@ -364,8 +300,8 @@
                   <button class="btn btn-secondary" id="btnVerificarVoz"><svg><use href="#i-wave"/></svg> Verificar voz</button>
                   <button class="btn btn-ghost" id="btnAutotestVoz"><svg><use href="#i-check"/></svg> Autoprueba</button>
                 </div>
-                <div id="pvResultado" style="margin-top:8px;font-size:.8rem;color:var(--muted)"></div>
-                <div id="pvVoces" style="margin-top:8px"></div>
+                <div id="pvResultado" class="pv-resultado"></div>
+                <div id="pvVoces"></div>
               </div>
             </div>
           </section>
@@ -377,32 +313,32 @@
               <input type="text" id="setGmailClientId" placeholder="…apps.googleusercontent.com" autocomplete="off" spellcheck="false">
               <div class="field-help">Se crea en <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console <svg><use href="#i-external"/></svg></a> → Crear credencial → ID de cliente OAuth → Aplicación web.</div>
             </div>
-            <div class="info-box" style="margin-top:12px">
+            <div class="info-box">
               <svg><use href="#i-mail"/></svg>
-              <div style="flex:1">
-                <p style="font-weight:700;color:var(--accent-2)">Conexión de la cuenta</p>
+              <div class="info-body">
+                <p class="info-title">Conexión de la cuenta</p>
                 <p id="gmailStatus">Estado: sin conectar.</p>
-                <div class="settings-actions-row" style="margin-top:8px">
+                <div class="settings-actions-row">
                   <button class="btn btn-secondary" id="btnConnectGmail"><svg><use href="#i-mail"/></svg> Conectar Gmail</button>
                   <button class="btn btn-ghost" id="btnDisconnectGmail" hidden><svg><use href="#i-trash"/></svg> Desconectar</button>
                 </div>
               </div>
             </div>
-            <div class="info-box" style="margin-top:12px;border-color:rgba(255,180,0,.4)">
+            <div class="info-box amber">
               <svg><use href="#i-alert"/></svg>
-              <div style="flex:1">
-                <p style="font-weight:700;color:var(--amber)">Requisitos (una sola vez)</p>
-                <p>1) Habilita la <strong>API de Gmail</strong>. 2) En <em>Pantalla de consentimiento OAuth</em>, ponla en modo <strong>Pruebas</strong> y agrega tu correo como usuario de prueba. 3) Registra estos valores exactos en el cliente OAuth:</p>
-                <p style="font-size:.78rem;margin:6px 0 2px">Origen JavaScript autorizado:</p>
-                <code id="gmailOrigin" style="font-size:.75rem;word-break:break-all"></code>
-                <p style="font-size:.78rem;margin:6px 0 2px">URI de redireccionamiento autorizada:</p>
-                <code id="gmailRedirect" style="font-size:.75rem;word-break:break-all"></code>
+              <div class="info-body">
+                <p class="info-title amber">Requisitos (una sola vez)</p>
+                <p>1) Habilite la <strong>API de Gmail</strong>. 2) En la pantalla de consentimiento OAuth, modo <strong>Pruebas</strong> y su correo como usuario de prueba. 3) Registre estos valores exactos en el cliente OAuth:</p>
+                <p class="code-label">Origen JavaScript autorizado:</p>
+                <code id="gmailOrigin"></code>
+                <p class="code-label">URI de redireccionamiento autorizada:</p>
+                <code id="gmailRedirect"></code>
               </div>
             </div>
-            <div class="info-box" style="margin-top:12px">
+            <div class="info-box">
               <svg><use href="#i-mic"/></svg>
-              <div style="flex:1">
-                <p style="font-weight:700;color:var(--accent-2)">Comandos de voz</p>
+              <div class="info-body">
+                <p class="info-title">Comandos de voz</p>
                 <p>«Viernes, revisa mi correo» · «léeme el correo de…» · «responde el correo» · «envíala» · «resumen de correos».</p>
               </div>
             </div>
@@ -463,8 +399,8 @@
       <div class="help-body">
         <div class="help-block"><h3><span>01</span> Despertarla</h3><p>Pulse <strong>ACTIVAR</strong> y diga <strong>«Viernes»</strong>.</p></div>
         <div class="help-block"><h3><span>02</span> Conversar</h3><p>Pregunte lo que quiera. Viernes usa Groq para razonar.</p></div>
-        <div class="help-block"><h3><span>03</span> Visión</h3><p>Active la cámara y pulse <strong>¿Qué ves?</strong> para analizar.</p></div>
-        <div class="help-block"><h3><span>04</span> Si algo falla</h3><p>Compruebe la clave de Groq en <strong>Configuración → Conexión</strong>.</p></div>
+        <div class="help-block"><h3><span>03</span> Visión</h3><p>Pulse <strong>¿Qué ves?</strong> o el icono de cámara para analizar.</p></div>
+        <div class="help-block"><h3><span>04</span> Correo</h3><p>Conecte Gmail en <strong>Configuración → Correo</strong> y pida «revisa mi correo».</p></div>
       </div>
     </div>
   </div>

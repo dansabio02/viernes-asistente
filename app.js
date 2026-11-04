@@ -672,6 +672,7 @@ async function toggleCamara() {
     cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null;
     $("camera").srcObject = null; $("cameraPlaceholder").hidden = false;
     $("camBadge").textContent = "OFF"; $("camBadge").style.color = "var(--muted)";
+    document.body.classList.remove("cam-on");
     log("Cámara apagada", "warn");
   } else {
     try {
@@ -679,6 +680,7 @@ async function toggleCamara() {
       cameraStream = s; $("camera").srcObject = s; $("camera").play();
       $("cameraPlaceholder").hidden = true; $("camBadge").textContent = "ON"; $("camBadge").style.color = "var(--green)";
       $("camSource").textContent = "CÁMARA"; $("camRes").textContent = cfg.maxImage + "px";
+      document.body.classList.add("cam-on");
       log("Cámara activada", "ok");
     } catch (e) { log("Error cámara: " + e.message, "error"); }
   }
@@ -800,15 +802,6 @@ function bindAjustes() {
   if (pt) pt.addEventListener("input", () => { cfg.passTimeout = parseInt(pt.value) || 10; const o = $("passTimeoutValue"); if (o) o.textContent = cfg.passTimeout + " min"; save(); });
 }
 
-function cerrarOnboarding() {
-  cfg.apiKey = $("onboardKey").value || cfg.apiKey;
-  cfg.userName = $("onboardName").value || cfg.userName;
-  cfg.altName = $("onboardAlt").value || cfg.altName;
-  if ($("onboardRemember").checked) save();
-  cerrarModal("onboarding"); document.body.setAttribute("data-ready","true");
-  aplicarUI(); log("Sistema inicializado.", "ok");
-}
-
 /* ==== RECONOCIMIENTO DE HABLANTE (Picovoice Eagle) ==== */
 function initEagleUI() {
   if (!window.ViernesVoice) return;
@@ -911,16 +904,8 @@ function init() {
   try { historial = JSON.parse(localStorage.getItem("viernes_hist") || "[]"); } catch (e) {}
   starfield(); brainNetwork(); actualizarReloj(); setInterval(actualizarReloj, 1000);
   aplicarUI(); bindAjustes(); initEagleUI(); initMailUI();
-  // La clave está en el Worker de Cloudflare: NO bloquear con onboarding.
+  // La clave vive en el Worker de Cloudflare: no se requiere onboarding.
   document.body.setAttribute("data-ready","true");
-  cerrarModal("onboarding");
-  // chequeos de capacidades
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  document.querySelectorAll("#onboardStatus span").forEach(s => {
-    const k = s.dataset.check;
-    const ok = k === "browser" ? !!SR : k === "secure" ? location.protocol !== "file:" : k === "speech" ? !!window.speechSynthesis : k === "camera" ? !!navigator.mediaDevices : false;
-    if (ok) { s.classList.add("ok"); s.innerHTML = s.innerHTML.replace("<i></i>", "<i></i>"); }
-  });
   iniciarReconocimiento(); // calienta el permiso (no arranca)
   // listeners principales
   $("btnPower").addEventListener("click", () => listening ? desactivarMicrofono() : activarMicrofono());
@@ -937,7 +922,7 @@ function init() {
   $("btnCameraPlaceholder").addEventListener("click", toggleCamara);
   $("btnSwitchCamera").addEventListener("click", () => toast("Cambio de cámara no disponible"));
   $("btnScreenShare").addEventListener("click", async () => {
-    try { const s = await navigator.mediaDevices.getDisplayMedia({video:true}); $("camera").srcObject = s; $("cameraPlaceholder").hidden = true; log("Pantalla compartida","ok"); }
+    try { const s = await navigator.mediaDevices.getDisplayMedia({video:true}); $("camera").srcObject = s; $("cameraPlaceholder").hidden = true; document.body.classList.add("cam-on"); log("Pantalla compartida","ok"); }
     catch (e) { log("Error pantalla: " + e.message, "error"); }
   });
   $("btnClearLog").addEventListener("click", () => $("log").innerHTML = "");
@@ -946,15 +931,6 @@ function init() {
   $("btnSettingsDone").addEventListener("click", () => cerrarModal("settingsModal"));
   $("btnHelp").addEventListener("click", () => abrirModal("helpModal"));
   $("btnCloseHelp").addEventListener("click", () => cerrarModal("helpModal"));
-  $("btnVisionSettings").addEventListener("click", () => { abrirModal("settingsModal"); document.querySelector('.tab[data-tab="vision"]').click(); });
-  $("onboardStart").addEventListener("click", cerrarOnboarding);
-  $("onboardSkip").addEventListener("click", () => { cerrarModal("onboarding"); document.body.setAttribute("data-ready","true"); });
-  $("onboardKeyToggle").addEventListener("click", () => { const i = $("onboardKey"); i.type = i.type === "password" ? "text" : "password"; });
-  $("onboardProvider").addEventListener("change", () => {
-    const g = $("onboardProvider").value === "groq";
-    $("onboardKeyLabel").textContent = g ? "Clave API de Groq" : "Clave API de xAI";
-    $("onboardKeyLink").href = g ? "https://console.groq.com/keys" : "https://console.x.ai/settings/api-keys";
-  });
   if (cfg.autoStartMic) setTimeout(activarMicrofono, 800);
   log("VIERNES MARK IV iniciado", "ok");
 }
