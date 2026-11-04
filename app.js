@@ -10,8 +10,11 @@ const DEFAULTS = {
   rate: 1.0, pitch: 1.0, autoSpeak: true, sounds: true,
   userName: "Señor Daniel", altName: "Jefe", wakeWords: "viernes",
   language: "es-MX", followUp: 12, handsFree: true, autoStartMic: false,
-  cameraDevice: "", imageDetail: "auto", maxImage: "1280", autoAttach: false, mirror: false, memory: true
+  cameraDevice: "", imageDetail: "auto", maxImage: "1280", autoAttach: false, mirror: false, memory: true,
+  passLock: false, passphrase: "", passTimeout: 10
 };
+let passUnlocked = false;
+let passUnlockTime = 0;
 let cfg = { ...DEFAULTS };
 let recognition = null, listening = false, speaking = false, busy = false;
 let historial = [], contextoImagen = null, cameraStream = null;
@@ -111,6 +114,22 @@ function desactivarMicrofono() {
   log("Escucha desactivada", "warn");
 }
 let ultimaRespuesta = 0;
+// Bloqueo por frase secreta: solo responde si dice la frase (o ya está desbloqueado)
+function verificarPassphrase(cmd) {
+  if (!cfg.passLock) return true; // bloqueo desactivado
+  // auto-bloqueo por inactividad
+  if (passUnlocked && Date.now() - passUnlockTime > cfg.passTimeout * 60000) passUnlocked = false;
+  if (passUnlocked) return true;
+  const fp = (cfg.passphrase || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  if (!fp) return true; // sin frase configurada, no bloquea
+  const cn = cmd.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (cn.includes(fp)) {
+    passUnlocked = true; passUnlockTime = Date.now();
+    return true;
+  }
+  return false; // bloqueado
+}
+
 function procesarVoz(texto) {
   const n = texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const w = cfg.wakeWords.split(",").map(s => s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""));
@@ -119,7 +138,15 @@ function procesarVoz(texto) {
   if (tieneWake) {
     const resto = n; let cmd = texto;
     for (const k of w) { const idx = n.indexOf(k); if (idx >= 0) { cmd = texto.slice(idx + k.length).trim(); break; } }
-    if (cmd) enviarTexto(cmd); else { setEstado("listening"); toast("¿Sí? Diga su petición"); }
+    if (!cmd) { setEstado("listening"); toast("¿Sí? Diga su petición"); return; }
+    // gate: bloqueo por frase secreta
+    if (!verificarPassphrase(cmd)) {
+      setEstado("listening");
+      toast("🔒 Bloqueado. Diga la frase de acceso.");
+      hablarLocal("Bloqueado. Diga la frase de acceso, señor.");
+      return;
+    }
+    enviarTexto(cmd);
   }
 }
 
@@ -383,6 +410,16 @@ function aplicarUI() {
   const mname = cfg.model.split("/").pop();
   st("modelChip", mname); st("tModel", mname); st("aboutModel", mname);
   st("aboutTransport", "GROQ"); st("tSearch", cfg.webSearch ? "ACTIVA" : "OFF");
+  sc("setPassLock", cfg.passLock); sv("setPassphrase", cfg.passphrase);
+  sv("setPassTimeout", cfg.passTimeout); st("passTimeoutValue", cfg.passTimeout + " min");
+  actualizarPassEstado();
+}
+
+function actualizarPassEstado() {
+  const el = $("passEstado"); if (!el) return;
+  if (!cfg.passLock) { el.textContent = "Estado: desactivado"; return; }
+  if (passUnlocked) { el.textContent = "Estado: 🔓 desbloqueado"; el.style.color = "var(--green)"; }
+  else { el.textContent = "Estado: 🔒 bloqueado"; el.style.color = "var(--red)"; }
 }
 
 function bindAjustes() {
@@ -434,6 +471,13 @@ function bindAjustes() {
   $("btnClearHistory").addEventListener("click", () => { historial = []; $("messages").innerHTML = ""; localStorage.removeItem("viernes_hist"); log("Historial borrado","ok"); });
   $("btnResetAll").addEventListener("click", () => { if (confirm("¿Restaurar todo?")) { localStorage.removeItem("viernes_cfg"); localStorage.removeItem("viernes_hist"); location.reload(); } });
   $("setKeyToggle").addEventListener("click", () => { const i = $("setApiKey"); i.type = i.type === "password" ? "text" : "password"; });
+  // Bloqueo por frase secreta
+  const pl = $("setPassLock");
+  if (pl) pl.addEventListener("change", () => { cfg.passLock = pl.checked; save(); actualizarPassEstado(); });
+  const pp = $("setPassphrase");
+  if (pp) pp.addEventListener("change", () => { cfg.passphrase = pp.value.trim(); save(); });
+  const pt = $("setPassTimeout");
+  if (pt) pt.addEventListener("input", () => { cfg.passTimeout = parseInt(pt.value) || 10; const o = $("passTimeoutValue"); if (o) o.textContent = cfg.passTimeout + " min"; save(); });
 }
 
 function cerrarOnboarding() {
