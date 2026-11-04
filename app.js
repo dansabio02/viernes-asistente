@@ -52,10 +52,15 @@ async function groqChat(mensajes) {
   return c;
 }
 
+// Tratamiento para iniciar cada frase (primera palabra del tratamiento configurado, ej. "Señor")
+function tratoInicio() {
+  return (cfg.userName || "Señor").trim().split(/\s+/)[0];
+}
+
 function systemPrompt() {
   return "Eres VIERNES, asistente personal leal de " + cfg.userName + ". Responde en español de México, máximo 4 líneas. " +
-    "Dirígete a él como 'señor' en cada respuesta. Nunca uses emojis. " +
-    "Razona brevemente si requiere cálculo o lógica. Ve directo al grano, con respeto y lealtad.";
+    "EMPIEZA cada respuesta con '" + tratoInicio() + ", ' al inicio de la frase (el tratamiento va SIEMPRE al principio, nunca al final). " +
+    "Nunca uses emojis. Razona brevemente si requiere cálculo o lógica. Ve directo al grano, con respeto y lealtad.";
 }
 
 function setEstado(e) {
@@ -143,7 +148,7 @@ function procesarVoz(texto) {
     if (!verificarPassphrase(cmd)) {
       setEstado("listening");
       toast("🔒 Bloqueado. Diga la frase de acceso.");
-      hablarLocal("Bloqueado. Diga la frase de acceso, señor.");
+      hablarLocal(tratoInicio() + ", bloqueado. Diga la frase de acceso.");
       return;
     }
     enviarTexto(cmd);
@@ -240,25 +245,25 @@ function comandoLocal(texto) {
   if (!n) return null;
   // ¿Estás despierta? → respuesta fija de lealtad
   if (/estas (despierta|despierto|ahi|activa|activo|ahi|presente|conmigo)|sigues (despierta|despierto|ahi|activa|activo)|estas funcionando/.test(n)) {
-    return "Para usted señor, siempre.";
+    return tratoInicio() + ", para usted, siempre.";
   }
   // Hora
   if (/que hora|la hora|hora actual|hora es|dime la hora/.test(n)) {
     const h = new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
-    return "Son las " + h + ", señor.";
+    return tratoInicio() + ", son las " + h + ".";
   }
   // Fecha
   if (/que fecha|que dia es|fecha de hoy|dia de hoy|la fecha/.test(n)) {
     const f = new Date().toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-    return "Hoy es " + f + ", señor.";
+    return tratoInicio() + ", hoy es " + f + ".";
   }
   // Saludos
   if (/^(hola|buenos dias|buenas tardes|buenas noches|hey|ey|que tal|buen dia)$/.test(n)) {
-    return "Hola, señor. Estoy a su servicio. ¿En qué le ayudo?";
+    return tratoInicio() + ", hola. Estoy a su servicio. ¿En qué le ayudo?";
   }
   // Quién eres
   if (/quien eres|como te llamas|tu nombre/.test(n)) {
-    return "Soy Viernes, su asistente personal. Para usted señor, siempre disponible.";
+    return tratoInicio() + ", soy Viernes, su asistente personal. Siempre a su disposición.";
   }
   return null;
 }
@@ -287,9 +292,9 @@ async function climaDe(lat, lon, lugar) {
   const j = await r.json();
   const c = j.current || {};
   const desc = CODIGOS_CLIMA[c.weather_code] || "cambiante";
-  return "En " + lugar + " hay " + Math.round(c.temperature_2m) + " grados, " + desc +
+  return tratoInicio() + ", en " + lugar + " hay " + Math.round(c.temperature_2m) + " grados, " + desc +
     ", sensación de " + Math.round(c.apparent_temperature || c.temperature_2m) + " grados, humedad " +
-    c.relative_humidity_2m + " por ciento, viento de " + Math.round(c.wind_speed_10m) + " kilómetros por hora, señor.";
+    c.relative_humidity_2m + " por ciento, viento de " + Math.round(c.wind_speed_10m) + " kilómetros por hora.";
 }
 async function comandoClima(texto) {
   const m = texto.match(/(?:en|de|para)\s+([a-záéíóúñü\s]+)/i);
