@@ -326,6 +326,33 @@
               <div class="field-group"><label for="setFollowUp">Ventana de seguimiento <output id="followUpValue">12 s</output></label><input type="range" id="setFollowUp" min="0" max="30" step="1"></div>
               <div class="field-group"><label>Escucha</label><label class="check-row compact"><input type="checkbox" id="setHandsFree"><span>Escucha continua</span></label><label class="check-row compact"><input type="checkbox" id="setAutoStartMic"><span>Activar al abrir</span></label></div>
             </div>
+            <div class="info-box" style="margin-top:16px">
+              <svg><use href="#i-mic"/></svg>
+              <div style="flex:1">
+                <p style="font-weight:700;color:var(--accent-2)">Reconocimiento de hablante (Picovoice Eagle)</p>
+                <p>Identifica quién habla. Necesita un AccessKey gratuito de <a href="https://console.picovoice.ai" target="_blank" rel="noopener">console.picovoice.ai</a>.</p>
+                <div class="field-group" style="margin-top:8px">
+                  <label for="pvAccessKey">AccessKey de Picovoice</label>
+                  <input type="password" id="pvAccessKey" placeholder="Pega tu AccessKey aquí" autocomplete="off" spellcheck="false">
+                </div>
+                <div class="two-fields">
+                  <div class="field-group">
+                    <label for="pvNombre">Nombre de la voz a inscribir</label>
+                    <input type="text" id="pvNombre" value="Señor Daniel" maxlength="30">
+                  </div>
+                  <div class="field-group">
+                    <label>&nbsp;</label>
+                    <button class="btn btn-secondary" id="btnInscribirVoz"><svg><use href="#i-volume"/></svg> Inscribir voz</button>
+                  </div>
+                </div>
+                <div class="settings-actions-row">
+                  <button class="btn btn-secondary" id="btnVerificarVoz"><svg><use href="#i-wave"/></svg> Verificar voz</button>
+                  <button class="btn btn-ghost" id="btnAutotestVoz"><svg><use href="#i-check"/></svg> Autoprueba</button>
+                </div>
+                <div id="pvResultado" style="margin-top:8px;font-size:.8rem;color:var(--muted)"></div>
+                <div id="pvVoces" style="margin-top:8px"></div>
+              </div>
+            </div>
           </section>
           <section class="settings-panel" data-panel="vision">
             <h3>Sistema óptico</h3>
@@ -372,6 +399,7 @@
   </div>
 
   <div id="fatal" hidden></div>
+  <script src="eagle.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

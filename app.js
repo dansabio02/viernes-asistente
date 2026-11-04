@@ -440,9 +440,54 @@ function cerrarOnboarding() {
   cfg.apiKey = $("onboardKey").value || cfg.apiKey;
   cfg.userName = $("onboardName").value || cfg.userName;
   cfg.altName = $("onboardAlt").value || cfg.altName;
-  if ($("onboardRemember").checked) save(); else cfg.apiKey = $("onboardKey").value;
+  if ($("onboardRemember").checked) save();
   cerrarModal("onboarding"); document.body.setAttribute("data-ready","true");
-  aplicarUI(); log("Sistema inicializado. Proveedor: " + cfg.provider, "ok");
+  aplicarUI(); log("Sistema inicializado.", "ok");
+}
+
+/* ==== RECONOCIMIENTO DE HABLANTE (Picovoice Eagle) ==== */
+function initEagleUI() {
+  if (!window.ViernesVoice) return;
+  const V = window.ViernesVoice;
+  const res = (txt, ok) => { const el = $("pvResultado"); if (el) { el.textContent = txt; el.style.color = ok ? "var(--green)" : "var(--red)"; } };
+  const keyInput = $("pvAccessKey");
+  if (keyInput) {
+    keyInput.value = V.getAccessKey();
+    keyInput.addEventListener("change", () => V.setAccessKey(keyInput.value.trim()));
+  }
+  window.renderVoces = () => {
+    const cont = $("pvVoces"); if (!cont) return;
+    const perfiles = V.getPerfiles();
+    const nombres = Object.keys(perfiles);
+    cont.innerHTML = nombres.length
+      ? nombres.map(n => `<span style="background:rgba(72,233,255,.1);border:1px solid var(--border);border-radius:6px;padding:4px 10px;margin:4px 6px 0 0;display:inline-flex;align-items:center;gap:8px">${n}<button onclick="window.ViernesVoice.borrarPerfil('${n}');window.renderVoces()" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px">✕</button></span>`).join("")
+      : "<span style='color:var(--muted)'>Sin voces inscritas</span>";
+  };
+  window.renderVoces();
+  const btnIns = $("btnInscribirVoz");
+  if (btnIns) btnIns.addEventListener("click", async () => {
+    const nombre = ($("pvNombre") && $("pvNombre").value) || "Señor Daniel";
+    res("Grabando 15 s… hable con naturalidad.", true);
+    try { const pct = await V.inscribirVoz(nombre, 15); res("✅ Voz de " + nombre + " inscrita (" + pct + "%)", true); window.renderVoces(); }
+    catch (e) { res("❌ " + e.message, false); }
+  });
+  const btnVer = $("btnVerificarVoz");
+  if (btnVer) btnVer.addEventListener("click", async () => {
+    res("Grabando 5 s…", true);
+    try {
+      const r = await V.verificarVoz(5);
+      if (r && r.score > 0.5) res("✅ Voz reconocida: " + r.nombre + " (" + Math.round(r.score*100) + "%)", true);
+      else res("⚠️ Voz no reconocida (puntaje bajo)", false);
+    } catch (e) { res("❌ " + e.message, false); }
+  });
+  const btnTest = $("btnAutotestVoz");
+  if (btnTest) btnTest.addEventListener("click", async () => {
+    res("Ejecutando autoprueba…", true);
+    try {
+      const t = await V.autotest();
+      res(t.ok ? "✅ Autoprueba OK" : "❌ " + t.pasos.map(p => p.txt).join(" · "), t.ok);
+    } catch (e) { res("❌ " + e.message, false); }
+  });
 }
 
 /* ==== STARFIELD + ORB ==== */
@@ -500,7 +545,7 @@ function init() {
   try { Object.assign(cfg, JSON.parse(localStorage.getItem("viernes_cfg") || "{}")); } catch (e) {}
   try { historial = JSON.parse(localStorage.getItem("viernes_hist") || "[]"); } catch (e) {}
   starfield(); brainNetwork(); actualizarReloj(); setInterval(actualizarReloj, 1000);
-  aplicarUI(); bindAjustes();
+  aplicarUI(); bindAjustes(); initEagleUI();
   // La clave está en el Worker de Cloudflare: NO bloquear con onboarding.
   document.body.setAttribute("data-ready","true");
   cerrarModal("onboarding");
