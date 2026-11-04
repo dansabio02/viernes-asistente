@@ -17,6 +17,7 @@ let passUnlocked = false;
 let passUnlockTime = 0;
 let cfg = { ...DEFAULTS };
 let recognition = null, listening = false, speaking = false, busy = false;
+let ultimoTranscript = "", ultimoTranscriptTime = 0, finHablaTime = 0, audioActual = null;
 let historial = [], contextoImagen = null, cameraStream = null;
 let synth = window.speechSynthesis;
 
@@ -86,15 +87,35 @@ function iniciarReconocimiento() {
   if (!SR) { log("Reconocimiento no soportado", "error"); return; }
   recognition = new SR();
   recognition.lang = cfg.language; recognition.continuous = true; recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
   recognition.onstart = () => { listening = true; setEstado("listening"); };
-  recognition.onend = () => { if (listening && !speaking) { try { recognition.start(); } catch (e) {} } };
+  // Reinicio con retardo: en móviles Chrome corta seguido y un restart inmediato falla en silencio.
+  recognition.onend = () => {
+    if (listening && !speaking && !busy && !document.hidden) {
+      setTimeout(() => {
+        if (listening && !speaking && !busy && !document.hidden) { try { recognition.start(); } catch (e) {} }
+      }, 250);
+    }
+  };
   recognition.onresult = (e) => {
+    // Viernes está hablando o pensando: ignorar (evita que el micrófono capte su propia voz)
+    if (speaking || busy) { $("liveCaption").textContent = ""; return; }
     let fin = "", inter = "";
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const r = e.results[i]; if (r.isFinal) fin += r[0].transcript + " "; else inter += r[0].transcript;
     }
     if (inter) $("liveCaption").textContent = inter;
-    if (fin) procesarVoz(fin.trim());
+    if (fin) {
+      fin = fin.trim();
+      // Deduplicación: Android Chrome re-entrega el mismo resultado final al reiniciar la sesión
+      const clave = normalizar(fin);
+      const ahora = Date.now();
+      if (clave && clave === ultimoTranscript && ahora - ultimoTranscriptTime < 4000) {
+        $("liveCaption").textContent = ""; return;
+      }
+      ultimoTranscript = clave; ultimoTranscriptTime = ahora;
+      procesarVoz(fin);
+    }
   };
   recognition.onerror = (e) => {
     if (e.error === "not-allowed" || e.error === "service-not-allowed") { listening = false; setEstado("standby"); log("Micrófono denegado", "error"); }
@@ -136,6 +157,9 @@ function verificarPassphrase(cmd) {
 }
 
 function procesarVoz(texto) {
+  // Guardas: Viernes está hablando o acaba de hablar (eco del altavoz del teléfono)
+  if (speaking || busy) return;
+  if (Date.now() - finHablaTime < 1200) return;
   const n = texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const w = cfg.wakeWords.split(",").map(s => s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""));
   const tieneWake = w.some(k => n.includes(k));
@@ -157,56 +181,84 @@ function procesarVoz(texto) {
 
 /* ==== TTS ==== */
 function detenerEscuchaParaHablar() {
-  if (recognition) { try { recognition.stop(); } catch (e) {} }
+  if (recognition) { try { recognition.abort(); } catch (e) {} }
 }
 function reanudarEscucha() {
   if (!listening) return;
-  try {
-    if (!recognition) iniciarReconocimiento();
-    if (recognition) recognition.start();
-  } catch (e) {}
-  setEstado("listening");
+  // Retardo breve: evita captar la cola del propio audio de Viernes por el altavoz del teléfono
+  setTimeout(() => {
+    if (!listening || speaking || busy) return;
+    try {
+      if (!recognition) iniciarReconocimiento();
+      if (recognition) recognition.start();
+    } catch (e) {}
+    if (!speaking && !busy) setEstado("listening");
+  }, 350);
 }
 
-// Voz hiperrealista: Edge TTS neural vía el Worker (con fallback a navegador)
+// Voz hiperrealista: Google TTS vía el Worker (con fallback a la voz del navegador)
 async function hablar(texto) {
   if (!cfg.autoSpeak || !texto) { setEstado(listening ? "listening" : "standby"); return; }
+  // Una sola voz: cancelar cualquier reproducción previa (Audio y síntesis)
+  if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; }
+  if (synth) { try { synth.cancel(); } catch (e) {} }
   speaking = true; busy = true; setEstado("speaking");
   detenerEscuchaParaHablar();
-  // 1) intentar voz natural de Google vía Worker (gratis, sin key)
+  const partes = [];
+  let resto = texto;
+  while (resto.length > 190) { let c = resto.lastIndexOf(" ", 190); if (c < 100) c = 190; partes.push(resto.slice(0, c)); resto = resto.slice(c).trim(); }
+  if (resto) partes.push(resto);
+  let tocadas = 0;
   try {
-    const partes = [];
-    let resto = texto;
-    while (resto.length > 190) { let c = resto.lastIndexOf(" ", 190); if (c < 100) c = 190; partes.push(resto.slice(0, c)); resto = resto.slice(c).trim(); }
-    if (resto) partes.push(resto);
     for (let i = 0; i < partes.length; i++) {
       const r = await fetch(WORKER_URL + "/tts?texto=" + encodeURIComponent(partes[i]));
       if (!r.ok) throw new Error("tts " + r.status);
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
       const a = new Audio(url);
+      audioActual = a;
       a.playbackRate = cfg.rate || 1; // velocidad del usuario
       await new Promise((res) => {
-        const fin = () => { URL.revokeObjectURL(url); res(); };
+        const fin = () => { URL.revokeObjectURL(url); if (audioActual === a) audioActual = null; res(); };
         a.onended = fin; a.onerror = fin;
-        a.play();
+        a.play().catch(fin);
       });
+      tocadas++;
     }
-    speaking = false; busy = false; reanudarEscucha();
+    speaking = false; busy = false; finHablaTime = Date.now();
+    reanudarEscucha();
     return;
   } catch (e) {}
-  hablarLocal(texto);
+  // Fallback a la voz del navegador SOLO con el texto que falta (nunca repite lo ya dicho)
+  const restantes = partes.slice(tocadas).join(" ");
+  if (tocadas > 0 && restantes) hablarLocalRestante(restantes);
+  else if (tocadas > 0) { speaking = false; busy = false; finHablaTime = Date.now(); reanudarEscucha(); }
+  else hablarLocal(texto);
 }
 
-function hablarLocal(texto) {
+function hablarLocalRestante(texto) {
   if (!synth) { speaking = false; busy = false; reanudarEscucha(); return; }
-  if (synth.speaking) synth.cancel();
   const u = new SpeechSynthesisUtterance(texto);
   u.lang = cfg.language; u.rate = cfg.rate; u.pitch = cfg.pitch;
   const voces = synth.getVoices();
   const v = voces.find(x => x.name === cfg.browserVoice) || voces.find(x => x.lang && x.lang.startsWith(cfg.language.split("-")[0])) || voces[0];
   if (v) u.voice = v;
-  u.onend = u.onerror = () => { speaking = false; busy = false; reanudarEscucha(); };
+  u.onend = u.onerror = () => { speaking = false; busy = false; finHablaTime = Date.now(); reanudarEscucha(); };
+  synth.speak(u);
+}
+
+function hablarLocal(texto) {
+  if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; }
+  if (!synth) { speaking = false; busy = false; reanudarEscucha(); return; }
+  if (synth.speaking) synth.cancel();
+  speaking = true; busy = true; setEstado("speaking");
+  detenerEscuchaParaHablar();
+  const u = new SpeechSynthesisUtterance(texto);
+  u.lang = cfg.language; u.rate = cfg.rate; u.pitch = cfg.pitch;
+  const voces = synth.getVoices();
+  const v = voces.find(x => x.name === cfg.browserVoice) || voces.find(x => x.lang && x.lang.startsWith(cfg.language.split("-")[0])) || voces[0];
+  if (v) u.voice = v;
+  u.onend = u.onerror = () => { speaking = false; busy = false; finHablaTime = Date.now(); reanudarEscucha(); };
   synth.speak(u);
 }
 
@@ -592,6 +644,7 @@ async function enviarTexto(texto) {
     $("tLatency").textContent = (Date.now() - t0) + " ms";
     $("tTokens").textContent = "≈" + Math.round(resp.length / 4);
     $("tTransport").textContent = "GROQ"; $("tVoice").textContent = "BROWSER";
+    ultimaRespuesta = Date.now();
     hablar(resp);
   } catch (e) {
     ty.remove(); agregarMensaje("vi", "⚠️ " + e.message);
@@ -860,7 +913,7 @@ function init() {
   // listeners principales
   $("btnPower").addEventListener("click", () => listening ? desactivarMicrofono() : activarMicrofono());
   $("btnMic").addEventListener("click", () => listening ? desactivarMicrofono() : activarMicrofono());
-  $("btnStop").addEventListener("click", () => { if (synth) synth.cancel(); speaking = false; busy = false; setEstado(listening?"listening":"standby"); });
+  $("btnStop").addEventListener("click", () => { if (synth) synth.cancel(); if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; } speaking = false; busy = false; setEstado(listening?"listening":"standby"); });
   $("btnSend").addEventListener("click", () => { const v = $("messageInput").value; $("messageInput").value = ""; enviarTexto(v); });
   $("messageInput").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const v = $("messageInput").value; $("messageInput").value = ""; enviarTexto(v); } });
   $("btnClear").addEventListener("click", () => { $("messages").innerHTML = ""; historial = []; });
