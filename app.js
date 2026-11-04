@@ -11,7 +11,7 @@ const DEFAULTS = {
   userName: "Señor Daniel", altName: "Jefe", wakeWords: "viernes",
   language: "es-MX", followUp: 12, handsFree: true, autoStartMic: false,
   cameraDevice: "", imageDetail: "auto", maxImage: "1280", autoAttach: false, mirror: false, memory: true,
-  passLock: false, passphrase: "", passTimeout: 10
+  passLock: false, passphrase: "papá llegó", passTimeout: 10
 };
 let passUnlocked = false;
 let passUnlockTime = 0;
