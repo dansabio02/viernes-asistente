@@ -98,7 +98,7 @@ function iniciarReconocimiento() {
     if (listening && !speaking && !document.hidden) {
       setTimeout(() => {
         if (listening && !speaking && !document.hidden) { try { recognition.start(); } catch (e) {} }
-      }, 250);
+      }, 200);
     }
   };
   recognition.onresult = (e) => {
@@ -124,7 +124,7 @@ function acumularFinal(texto) {
 }
 function programarVuelco() {
   clearTimeout(bufferTimer);
-  bufferTimer = setTimeout(volcarBuffer, 800);
+  bufferTimer = setTimeout(volcarBuffer, 550);
 }
 function volcarBuffer() {
   const completo = (bufferFin || "").trim();
@@ -133,8 +133,9 @@ function volcarBuffer() {
   $("liveCaption").textContent = "";
   const clave = normalizar(completo);
   const ahora = Date.now();
-  // Deduplicación: Android Chrome re-entrega la misma frase al reiniciar la sesión
-  if (clave && clave === ultimoTranscript && ahora - ultimoTranscriptTime < 8000) return;
+  // Deduplicación: Chrome re-entrega la frase al reiniciar la sesión (llega mientras
+  // se procesa o a los <3 s). Un repetir GENUINO (mismas palabras a +3 s) sí se responde.
+  if (clave && clave === ultimoTranscript && (busy || ahora - ultimoTranscriptTime < 3000)) return;
   // Variación de la misma frase mientras Viernes piensa: descartar (evita doble respuesta)
   if (busy && textoEnCurso && textoSimilar(completo, textoEnCurso)) return;
   ultimoTranscript = clave; ultimoTranscriptTime = ahora;
@@ -206,6 +207,10 @@ function procesarVoz(texto) {
       return;
     }
     enviarTexto(cmd);
+  } else if (cfg.handsFree) {
+    // ESCUCHA CONTINUA (config. por defecto): procesar todo lo que se diga, sin «Viernes»
+    if (!verificarPassphrase(texto)) { setEstado("listening"); toast("🔒 Bloqueado. Diga la frase de acceso."); return; }
+    enviarTexto(texto);
   } else if (Date.now() - pendientePeticion < 12000) {
     // Continuación: la petición llegó en un trozo aparte (Chrome corta la frase en el teléfono)
     pendientePeticion = 0;
@@ -313,6 +318,18 @@ setInterval(() => {
     try { recognition.stop(); } catch (e) {}
   }
 }, 15000);
+
+// Al volver la pantalla (el teléfono apagado mata la sesión): relanzar la escucha
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && listening && !speaking) {
+    setTimeout(() => {
+      if (listening && !speaking && !document.hidden) {
+        iniciarReconocimiento();
+        try { recognition.start(); } catch (e) {}
+      }
+    }, 300);
+  }
+});
 
 /* ==== MENSAJES ==== */
 function agregarMensaje(rol, texto, img) {
