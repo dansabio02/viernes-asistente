@@ -17,7 +17,7 @@ let passUnlocked = false;
 let passUnlockTime = 0;
 let cfg = { ...DEFAULTS };
 let recognition = null, listening = false, speaking = false, busy = false;
-let ultimoTranscript = "", ultimoTranscriptTime = 0, finHablaTime = 0, audioActual = null;
+let ultimoTranscript = "", ultimoTranscriptTime = 0, finHablaTime = 0, audioActual = null, pendientePeticion = 0;
 let historial = [], contextoImagen = null, cameraStream = null;
 let synth = window.speechSynthesis;
 
@@ -85,21 +85,24 @@ function actualizarReloj() {
 function iniciarReconocimiento() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { log("Reconocimiento no soportado", "error"); return; }
+  // Destruir instancia previa: en Android, reutilizar la misma tras abort() falla en silencio
+  if (recognition) { try { recognition.onend = null; recognition.onresult = null; recognition.abort(); } catch (e) {} recognition = null; }
   recognition = new SR();
   recognition.lang = cfg.language; recognition.continuous = true; recognition.interimResults = true;
   recognition.maxAlternatives = 1;
   recognition.onstart = () => { listening = true; setEstado("listening"); };
-  // Reinicio con retardo: en móviles Chrome corta seguido y un restart inmediato falla en silencio.
+  // Reinicio con retardo: en móviles Chrome corta la sesión a cada resultado y hay que relanzarla.
+  // El micrófono NO debe morir aunque Viernes esté pensando (busy): usted sigue hablando.
   recognition.onend = () => {
-    if (listening && !speaking && !busy && !document.hidden) {
+    if (listening && !speaking && !document.hidden) {
       setTimeout(() => {
-        if (listening && !speaking && !busy && !document.hidden) { try { recognition.start(); } catch (e) {} }
+        if (listening && !speaking && !document.hidden) { try { recognition.start(); } catch (e) {} }
       }, 250);
     }
   };
   recognition.onresult = (e) => {
-    // Viernes está hablando o pensando: ignorar (evita que el micrófono capte su propia voz)
-    if (speaking || busy) { $("liveCaption").textContent = ""; return; }
+    // Viernes está hablando: ignorar (evita que el micrófono capte su propia voz)
+    if (speaking) { $("liveCaption").textContent = ""; return; }
     let fin = "", inter = "";
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const r = e.results[i]; if (r.isFinal) fin += r[0].transcript + " "; else inter += r[0].transcript;
@@ -157,8 +160,9 @@ function verificarPassphrase(cmd) {
 }
 
 function procesarVoz(texto) {
-  // Guardas: Viernes está hablando o acaba de hablar (eco del altavoz del teléfono)
-  if (speaking || busy) return;
+  // Guardas: Viernes está hablando o acaba de hablar (eco del altavoz del teléfono).
+  // busy (pensando) NO bloquea: si Chrome parte la frase, el resto llega mientras piensa.
+  if (speaking) return;
   if (Date.now() - finHablaTime < 1200) return;
   const n = texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
   const w = cfg.wakeWords.split(",").map(s => s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""));
@@ -167,7 +171,11 @@ function procesarVoz(texto) {
   if (tieneWake) {
     const resto = n; let cmd = texto;
     for (const k of w) { const idx = n.indexOf(k); if (idx >= 0) { cmd = texto.slice(idx + k.length).trim(); break; } }
-    if (!cmd) { setEstado("listening"); toast("¿Sí? Diga su petición"); return; }
+    if (!cmd) {
+      // Dijo solo la palabra de activación: esperar la petición que llega separada
+      pendientePeticion = Date.now();
+      setEstado("listening"); toast("¿Sí? Diga su petición"); return;
+    }
     // gate: bloqueo por frase secreta
     if (!verificarPassphrase(cmd)) {
       setEstado("listening");
@@ -176,6 +184,10 @@ function procesarVoz(texto) {
       return;
     }
     enviarTexto(cmd);
+  } else if (Date.now() - pendientePeticion < 12000) {
+    // Continuación: la petición llegó en un trozo aparte (Chrome corta la frase en el teléfono)
+    pendientePeticion = 0;
+    enviarTexto(texto);
   }
 }
 
@@ -188,11 +200,10 @@ function reanudarEscucha() {
   // Retardo breve: evita captar la cola del propio audio de Viernes por el altavoz del teléfono
   setTimeout(() => {
     if (!listening || speaking || busy) return;
-    try {
-      if (!recognition) iniciarReconocimiento();
-      if (recognition) recognition.start();
-    } catch (e) {}
-    if (!speaking && !busy) setEstado("listening");
+    // Instancia SIEMPRE nueva: en Android, start() sobre la misma tras abort() falla en silencio
+    iniciarReconocimiento();
+    try { recognition.start(); } catch (e) {}
+    setEstado("listening");
   }, 350);
 }
 
@@ -263,8 +274,9 @@ function hablarLocal(texto) {
 }
 
 // Keepalive: Chrome corta la sesión sin disparar onend tras varios ciclos.
+// Solo refresca si no hubo resultados recientes (no cortar al usuario a mitad de frase).
 setInterval(() => {
-  if (listening && recognition && !speaking && !busy && !document.hidden) {
+  if (listening && recognition && !speaking && !document.hidden && Date.now() - ultimoTranscriptTime > 8000) {
     try { recognition.stop(); } catch (e) {}
   }
 }, 15000);
