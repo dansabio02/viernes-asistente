@@ -1,4 +1,4 @@
-// Cloudflare Worker — proxy para Groq + voz natural
+// Cloudflare Worker — proxy para Groq + voz natural + MEMORIA DE VIERNES
 // (las keys quedan en el servidor, no en el navegador)
 //
 // CÓMO DESPLEGAR (5 minutos, gratis):
@@ -8,20 +8,156 @@
 // 4. Save and Deploy
 // 5. Settings → Variables → Add variable (Type: Secret):
 //      GROQ_API_KEY = tu_key_de_groq
+//      VIERNES_PIN  = una_clave_solo_tuya   (protege notas y bitácora)
 //    (Opcional) VIERNES_ORIGIN = https://tusitio (Type: Text)
 //    Si VIERNES_ORIGIN no existe, se permite cualquier origen.
-// 6. Si aparece "unpublished changes" → Deploy otra vez.
+// 6. MEMORIA PERSISTENTE: dash.cloudflare.com → Storage & Databases → KV →
+//    Create namespace "viernes-datos" → luego en el Worker: Settings →
+//    Bindings → KV namespace → Variable name: VIERNES_KV, namespace: viernes-datos.
+//    Sin el KV, el worker funciona pero las notas no sobreviven al reinicio.
+// 7. Si aparece "unpublished changes" → Deploy otra vez.
 //
 // ENDPOINTS:
 //   POST /              → proxy a Groq (GROQ_API_KEY del entorno)
 //   GET  /tts?texto=…   → voz natural de Google (MP3, gratis, sin key)
-//   GET  /tts11?texto=… → voz natural ElevenLabs "Luisa"
-//                          (ELEVENLABS_API_KEY del entorno)
-//   GET  /tts-edge?texto=… → voz natural Edge TTS (neural, gratis, sin key)
+//   GET  /ping          → estado del worker (si hay KV o no)
+//   POST /note   {texto}&pin → guardar una nota
+//   GET  /notes  ?pin        → listar las últimas notas
+//   GET  /note?id=…&pin      → borrar una nota
+//   GET  /ask?texto=…&pin    → preguntar a VIERNES SIN ABRIR LA PÁGINA
+//        (ideal para atajos de Android/iOS, Tasker, AutoVoice…). Devuelve la
+//        respuesta; con &raw=1 devuelve solo texto plano para que el atajo
+//        lo lea en voz alta. Cada pregunta y respuesta queda en la bitácora.
+//   GET  /log?pin=&desde=…   → bitácora (apunta todo lo ocurrido fuera de casa)
+
+const TRATOS = ["Señor", "Señor Daniel", "Jefe"];
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const kv = (env && env.VIERNES_KV) || null;
+    const memoria = (globalThis.__viernesMem = globalThis.__viernesMem || { notas: [], bitacora: [] });
+
+    // ── MEMORIA: lecto-escritura en KV (fallback en RAM si no hay binding) ──
+    const K = { notas: "viernes:notas", bit: "viernes:bitacora" };
+    async function leerClave(k, def) {
+      if (kv) { try { const v = await kv.get(k); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
+      return memoria[k === K.notas ? "notas" : "bitacora"] || def;
+    }
+    async function guardarClave(k, val) {
+      if (kv) { try { await kv.put(k, JSON.stringify(val)); return; } catch (e) {} }
+      if (k === K.notas) memoria.notas = val; else memoria.bitacora = val;
+    }
+    async function bitacoraAdd(tipo, txt) {
+      const b = await leerClave(K.bit, []);
+      b.push({ t: Date.now(), tipo, txt: String(txt).slice(0, 600) });
+      await guardarClave(K.bit, b.slice(-120));
+    }
+
+    // ── AUTENTICACIÓN por PIN (protege la memoria personal) ──
+    const pinSrv = ((env && env.VIERNES_PIN) || (request.env && request.env.VIERNES_PIN)) || "";
+    function pedir(url2, req2) {
+      return url2.searchParams.get("pin") || req2.headers.get("x-viernes-pin") || "";
+    }
+    function respuesta(obj, origen, status) {
+      const h = cors(origen || "*", true);
+      h.set("Content-Type", "application/json");
+      return new Response(JSON.stringify(obj), { status: status || 200, headers: h });
+    }
+
+    // ── PING: diagnóstico para el Ajustes de la app ──
+    if (url.pathname === "/ping" && request.method === "GET") {
+      return respuesta({ ok: true, kv: !!kv, pin: !!pinSrv }, request.headers.get("Origin") || "*");
+    }
+
+    // ── NOTAS ──
+    if (url.pathname === "/note" && (request.method === "POST" || request.method === "GET")) {
+      if (!pinSrv) return respuesta({ error: "Configure VIERNES_PIN en el worker" }, "*", 500);
+      if (pedir(url, request) !== pinSrv) return respuesta({ error: "PIN incorrecto" }, "*", 403);
+      let texto = url.searchParams.get("texto") || "";
+      if (!texto && request.method === "POST") {
+        try { const b = await request.json(); texto = (b && b.texto) || ""; } catch (e) {}
+      }
+      if (!texto) return respuesta({ error: "Falta texto" }, "*", 400);
+      const notas = await leerClave(K.notas, []);
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      notas.unshift({ id, t: Date.now(), txt: texto.slice(0, 500) });
+      await guardarClave(K.notas, notas.slice(0, 100));
+      await bitacoraAdd("nota", texto);
+      return respuesta({ ok: true, id, total: Math.min(notas.length, 100) }, request.headers.get("Origin") || "*");
+    }
+    if (url.pathname === "/note" && request.method === "DELETE") {
+      if (!pinSrv) return respuesta({ error: "Configure VIERNES_PIN en el worker" }, "*", 500);
+      if (pedir(url, request) !== pinSrv) return respuesta({ error: "PIN incorrecto" }, "*", 403);
+      const id = url.searchParams.get("id") || "";
+      let notas = await leerClave(K.notas, []);
+      const antes = notas.length;
+      notas = notas.filter((n) => n.id !== id);
+      await guardarClave(K.notas, notas);
+      return respuesta({ ok: true, borradas: antes - notas.length }, request.headers.get("Origin") || "*");
+    }
+    if (url.pathname === "/notes" && request.method === "GET") {
+      if (!pinSrv) return respuesta({ error: "Configure VIERNES_PIN en el worker" }, "*", 500);
+      if (pedir(url, request) !== pinSrv) return respuesta({ error: "PIN incorrecto" }, "*", 403);
+      const notas = await leerClave(K.notas, []);
+      return respuesta({ ok: true, notas }, request.headers.get("Origin") || "*");
+    }
+
+    // ── ASK: VIERNES responde SIN que abras la página (atajos, Tasker, Shortcuts) ──
+    if (url.pathname === "/ask") {
+      if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(request.headers.get("Origin") || "*", true) });
+      if (!pinSrv) return respuesta({ error: "Configure VIERNES_PIN en el worker" }, "*", 500);
+      if (pedir(url, request) !== pinSrv) return respuesta({ error: "PIN incorrecto" }, "*", 403);
+      const pregunta = url.searchParams.get("texto") || "";
+      if (!pregunta) return respuesta({ error: "Falta texto" }, "*", 400);
+      const key = ((env && env.GROQ_API_KEY) || (request.env && request.env.GROQ_API_KEY)) || "";
+      if (!key) return respuesta({ error: "Falta GROQ_API_KEY" }, "*", 500);
+      // Contexto: últimas notas + últimos intercambios, para que "recuerde"
+      const notas = (await leerClave(K.notas, [])).slice(0, 10);
+      const bit = (await leerClave(K.bit, [])).slice(-10);
+      const ctxNotas = notas.length ? "NOTAS RECIENTES DEL JEFE:\n" + notas.map((n) => "- " + n.txt).join("\n") : "";
+      const ctxBit = bit.length ? "INTERCAMBIOS RECIENTES:\n" + bit.map((b) => b.tipo + ": " + b.txt).join("\n") : "";
+      const sys = "Eres VIERNES, asistente personal leal y eficiente. Hablas español de México, natural y breve, " +
+        "para ser leído en voz alta (1 a 5 frases, sin listas ni emojis). No escribas ningún saludo de tratamiento; " +
+        "el sistema lo agrega. Responde directo y útil." + (ctxNotas ? "\n" + ctxNotas : "") + (ctxBit ? "\n" + ctxBit : "");
+      try {
+        const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "openai/gpt-oss-120b", reasoning_effort: "medium",
+            messages: [{ role: "system", content: sys }, { role: "user", content: pregunta }],
+            temperature: 0.6, max_tokens: 1024
+          })
+        });
+        if (!r.ok) return respuesta({ error: "Groq HTTP " + r.status }, "*", 502);
+        const j = await r.json();
+        let texto = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || "").trim();
+        if (!texto) return respuesta({ error: "Respuesta vacía" }, "*", 502);
+        // Trato rotativo del servidor — la misma alternancia que la app
+        const b = await leerClave(K.bit, []);
+        const turno = b.length % TRATOS.length; // persistencia que rota sola
+        const textoFinal = TRATOS[turno] + ", " + texto.charAt(0).toLowerCase() + texto.slice(1);
+        await bitacoraAdd("pregunta", pregunta);
+        await bitacoraAdd("respuesta", textoFinal);
+        if ((url.searchParams.get("raw") || "") === "1") {
+          const h2 = cors("*", true); h2.set("Content-Type", "text/plain; charset=utf-8");
+          return new Response(textoFinal, { headers: h2 });
+        }
+        return respuesta({ ok: true, respuesta: textoFinal }, request.headers.get("Origin") || "*");
+      } catch (e) {
+        return respuesta({ error: "Error: " + e.message }, "*", 502);
+      }
+    }
+
+    // ── LOG: la app sincroniza al abrir lo ocurrido mientras estaba cerrada ──
+    if (url.pathname === "/log" && request.method === "GET") {
+      if (!pinSrv) return respuesta({ error: "Configure VIERNES_PIN en el worker" }, "*", 500);
+      if (pedir(url, request) !== pinSrv) return respuesta({ error: "PIN incorrecto" }, "*", 403);
+      const desde = Number(url.searchParams.get("desde")) || 0;
+      const b = await leerClave(K.bit, []);
+      return respuesta({ ok: true, eventos: b.filter((x) => x.t > desde) }, request.headers.get("Origin") || "*");
+    }
 
     // ── TTS EDGE (neural, voz extremadamente natural) ──
     if (url.pathname === "/tts-edge") {

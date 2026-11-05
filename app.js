@@ -192,6 +192,28 @@ function textoSimilar(a, b) {
   let inter = 0; A.forEach(w => { if (B.includes(w)) inter++; });
   return inter / Math.max(A.length, B.length) >= 0.6;
 }
+/* ==== CANDADO DE PANTALLA (Wake Lock) ==== */
+let candadoPantalla = null;
+async function pedirCandado() {
+  if (!cfg.handsFree) return;
+  if (candadoPantalla || document.hidden) return;
+  try {
+    if (navigator.wakeLock && navigator.wakeLock.request) {
+      candadoPantalla = await navigator.wakeLock.request("screen");
+      candadoPantalla.addEventListener("release", () => {
+        candadoPantalla = null;
+        if (listening && !document.hidden) setTimeout(pedirCandado, 900); // el sistema lo soltó: reintentar
+      });
+      log("Pantalla sostenida para escucha continua", "ok");
+    }
+  } catch (e) { log("Wake Lock no disponible: " + e.message, "warn"); }
+}
+function soltarCandado() {
+  if (candadoPantalla) { try { candadoPantalla.release(); } catch (e) {} candadoPantalla = null; }
+}
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && listening && !speaking) pedirCandado(); // re-candado al volver
+});
 async function activarMicrofono() {
   // Recrear el reconocedor en cada activación para evitar estado "used"
   if (recognition) { try { recognition.onend = null; recognition.stop(); } catch (e) {} recognition = null; }
@@ -202,6 +224,7 @@ async function activarMicrofono() {
   $("btnPower").classList.add("active"); $("btnMic").classList.add("active");
   $("powerLabel").textContent = "ACTIVO";
   log("Escucha activa. Di «Viernes»…", "ok");
+  pedirCandado();
 }
 function desactivarMicrofono() {
   listening = false;
@@ -209,6 +232,7 @@ function desactivarMicrofono() {
   setEstado("standby"); $("btnPower").classList.remove("active"); $("btnMic").classList.remove("active");
   $("powerLabel").textContent = "ACTIVAR";
   log("Escucha desactivada", "warn");
+  soltarCandado();
 }
 let ultimaRespuesta = 0;
 // Bloqueo por frase secreta: solo responde si dice la frase (o ya está desbloqueado)
@@ -470,6 +494,159 @@ async function comandoClima(texto) {
   }
   if (!geo) return null;
   return await climaDe(geo.lat, geo.lon, geo.nombre);
+}
+
+/* ==== MEMORIA DE VIERNES: notas y bitácora en el servidor (Worker + KV) ====
+   Las notas se guardan en el servidor (Cloudflare KV) para que sobrevivan a
+   cerrar la página, cambiar de teléfono o pedirle cosas desde un atajo de voz
+   sin abrir la app. Si el worker no responde, quedan en el teléfono y se
+   suben solas cuando vuelve la conexión. Protegidas con un PIN suyo. */
+let pinNotas = localStorage.getItem("viernes_pin") || "";
+function pedirPinNota() {
+  if (pinNotas) return pinNotas;
+  const p = (prompt("Elija un PIN/clave para su memoria personal (notas y bitácora). Debe ser EL MISMO que configure en el worker como VIERNES_PIN:") || "").trim();
+  if (p) { pinNotas = p; try { localStorage.setItem("viernes_pin", p); } catch (e) {} }
+  return pinNotas;
+}
+function apiMemoria(ruta) {
+  if (!pinNotas) pedirPinNota();
+  if (!pinNotas) throw new Error("Pin no definido: no puedo tocar su memoria.");
+  return WORKER_URL + ruta + (ruta.includes("?") ? "&" : "?") + "pin=" + encodeURIComponent(pinNotas);
+}
+// Cola de notas escritas sin conexión (se suben en cuanto el worker responde)
+let colaNotas = [];
+try { colaNotas = JSON.parse(localStorage.getItem("viernes_cola") || "[]"); } catch (e) { colaNotas = []; }
+function guardarCola() { try { localStorage.setItem("viernes_cola", JSON.stringify(colaNotas)); } catch (e) {} }
+async function guardarNota(texto) {
+  const nota = { txt: texto, t: Date.now() };
+  colaNotas.push(nota); guardarCola();
+  // Intento inmediato de subir TODO lo pendiente
+  return await subirColaNotas();
+}
+async function subirColaNotas() {
+  if (!pinNotas) return null;
+  const restantes = [];
+  let primera = true, subidas = 0;
+  for (const n of colaNotas) {
+    try {
+      const r = await fetch(apiMemoria("/note"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto: n.txt }) });
+      if (!r.ok) { restantes.push(n); continue; }
+      subidas++; if (primera) { primera = false; }
+    } catch (e) { restantes.push(n); }
+  }
+  colaNotas = restantes; guardarCola();
+  return subidas;
+}
+async function leerNotas() {
+  let remotas = null;
+  if (pinNotas) {
+    try {
+      const r = await fetch(apiMemoria("/notes"));
+      if (r.ok) { const j = await r.json(); if (j && j.notas) remotas = j.notas; }
+    } catch (e) {}
+  }
+  const pendientes = colaNotas.map((n) => ({ txt: n.txt, t: n.t }));
+  const todas = (remotas || []).concat(pendientes);
+  if (!todas.length) return null;
+  // Orden nuevo→viejo, máx 8 para leerse natural en voz alta
+  todas.sort((a, b) => b.t - a.t);
+  return todas.slice(0, 8).map((n) => n.txt);
+}
+async function borrarUltimaNota() {
+  if (pinNotas) {
+    try {
+      const r = await fetch(apiMemoria("/notes"));
+      if (r.ok) {
+        const j = await r.json();
+        const primera = j && j.notas && j.notas[0];
+        if (primera) {
+          const d = await fetch(apiMemoria("/note") + "&id=" + encodeURIComponent(primera.id), { method: "DELETE" });
+          if (d.ok) return primera.txt;
+        }
+      }
+    } catch (e) {}
+  }
+  if (colaNotas.length) { const n = colaNotas.pop(); guardarCola(); return n.txt; }
+  return null;
+}
+
+/* ==== Bitácora: lo que ocurrió fuera de la página se lee al volver ==== */
+let ultimoLog = Number(localStorage.getItem("viernes_lastlog")) || Date.now() - 12 * 3600 * 1000;
+async function sincronizarBitacora(silencioso) {
+  if (!pinNotas) return;
+  try {
+    const r = await fetch(apiMemoria("/log") + "&desde=" + ultimoLog);
+    if (!r.ok) return;
+    const j = await r.json();
+    if (!j || !j.eventos || !j.eventos.length) return;
+    ultimoLog = j.eventos[j.eventos.length - 1].t + 1;
+    try { localStorage.setItem("viernes_lastlog", String(ultimoLog)); } catch (e) {}
+    const notasNuevas = j.eventos.filter((e2) => e2.tipo === "nota").length;
+    const respuestas = j.eventos.filter((e2) => e2.tipo === "respuesta");
+    const preguntas = j.eventos.filter((e2) => e2.tipo === "pregunta");
+    // Las conversaciones hechas desde el atajo entran a la memoria de la app
+    for (let i = 0; i < preguntas.length; i++) {
+      historial.push({ role: "user", content: preguntas[i].txt });
+      const r2 = respuestas[i]; if (r2) historial.push({ role: "assistant", content: r2.txt });
+    }
+    if (cfg.memory) { try { localStorage.setItem("viernes_hist", JSON.stringify(historial.slice(-30))); } catch (e) {} }
+    if (silencioso) return;
+    if (respuestas.length) {
+      log("Bitácora: " + j.eventos.length + " eventos mientras estaba fuera", "ok");
+      const resumen = "Mientras estaba fuera, ocurrió lo siguiente. " +
+        notasNuevas + (notasNuevas === 1 ? " nota nueva." : " notas nuevas.") +
+        (respuestas.length ? " Se le respondió " + respuestas.length + (respuestas.length === 1 ? " pregunta por el canal remoto." : " preguntas por el canal remoto.") : "");
+      notificarImportante(resumen + "\n\nÚltima respuesta: " + respuestas[respuestas.length - 1].txt);
+    } else if (notasNuevas) {
+      log("Bitácora: " + notasNuevas + " notas nuevas remotas", "ok");
+      notificarImportante("Anoté " + notasNuevas + (notasNuevas === 1 ? " nota nueva mientras estaba fuera." : " notas nuevas mientras estaba fuera."));
+    }
+  } catch (e) { log("Bitácora: " + e.message, "warn"); }
+}
+
+/* ==== COMANDOS DE MEMORIA POR VOZ ====
+   «Apunta…» / «toma nota de…» / «recuerda que…» → se guarda en el servidor.
+   «Lee mis notas» / «qué apuntaste» → las enumera.
+   «Borra la última nota» → elimina la más reciente.
+   «Sincroniza» / «qué pasó mientras no estaba» → repasa la bitácora. */
+async function comandoNota(texto) {
+  const n = normalizar(texto);
+  // GUARDAR
+  let m = texto.match(/^(?:apunta(?:me)?|toma\s+nota(?:\s+de)?|anota|apuntar|recuerda(?:\s+que)?)\s*[:,]?(?:\s+que\s+|\s+de\s+|\s)(.+)/i);
+  if (m) {
+    const cuerpo = m[1].trim().replace(/[.]$/, "");
+    if (!cuerpo) return null;
+    await guardarNota(cuerpo);
+    const pend = colaNotas.length;
+    const nf = new Date().toLocaleDateString("es-MX", { day: "numeric", month: "short" });
+    return tratoInicio() + ", anotado el " + nf + ": " + cuerpo.replace(/^./, (c) => c.toLowerCase()) +
+      (pend ? ". Está sin conexión; lo subiré en cuanto vuelva la red." : ".");
+  }
+  // LEER
+  if (/^(?:lee|lée|lista|revisa|dime|cuales son|qué tienes|que tienes|recuérdame|recuerdame|repasa)\s+(?:mis\s+)?(notas|apuntes|recuerdos)|mis (?:notas|apuntes)$|qué apuntaste|que apuntaste|que anotaste|qué anotaste/.test(n)) {
+    const notas = await leerNotas();
+    if (!notas) return tratoInicio() + ", no tiene notas guardadas. Si quiere, le apunto algo: solo diga apunta y lo que deba recordar.";
+    if (notas.length === 1) return tratoInicio() + ", solo una nota: " + notas[0] + ".";
+    return tratoInicio() + ", tiene " + notas.length + " notas recientes. " + notas.map((s, i) => (i + 1) + ": " + s).join(". ");
+  }
+  // BORRAR última
+  if (/^(?:borra|borrar|elimina|eliminar|quita)\s+(?:la\s+)?(?:ultima|última)\s+nota/.test(n)) {
+    const borrada = await borrarUltimaNota();
+    return borrada
+      ? tratoInicio() + ", borrado: " + borrada.replace(/^./, (c) => c.toLowerCase()) + "."
+      : tratoInicio() + ", no hay notas por borrar.";
+  }
+  // SINCRONIZAR bitácora a demanda
+  if (/^(?:sincroniza|sincronizar|revisa la bitacora|qué pasó|mientras no estabas|estuve fuera|revisa tu bitacora|qué me perdí)/.test(n)) {
+    const antes = j_ultimoEvento();
+    await sincronizarBitacora(true);
+    return tratoInicio() + ", bitácora sincronizada. " + antes;
+  }
+  return null;
+}
+// Resumen de la sincronización para hablarlo a la vez
+function j_ultimoEvento() {
+  return "al día y al tanto, " + (historial.length ? "con los últimos intercambios en mi memoria." : "sin eventos pendientes.");
 }
 
 /* ==== CORREO (Gmail) ==== */
@@ -750,6 +927,8 @@ async function enviarTexto(texto) {
     // Comando local instantáneo (hora, fecha, saludo, estado) — sin IA
     let resp;
     if (!contextoImagen) resp = comandoLocal(texto);
+    // Memoria: apuntar, leer notas, borrar, sincronizar bitácora
+    if (!resp && !contextoImagen) { try { resp = await comandoNota(texto); } catch (e) { log("Notas: " + e.message, "error"); } }
     // Correo (Gmail): leer, priorizar, redactar y enviar
     if (!resp && !contextoImagen) { try { resp = await comandoCorreo(texto); } catch (e) { resp = tratoInicio() + ", " + e.message; } }
     // Clima en vivo (Open-Meteo)
@@ -1140,6 +1319,9 @@ function init() {
   try { historial = JSON.parse(localStorage.getItem("viernes_hist") || "[]"); } catch (e) {}
   starfield(); brainNetwork(); actualizarReloj(); setInterval(actualizarReloj, 1000);
   aplicarUI(); bindAjustes(); initEagleUI(); initMailUI();
+  // Memoria del servidor: subir notas pendientes y leer la bitácora de su ausencia
+  if (pinNotas) { subirColaNotas().then((n) => { if (n) log("Notas pendientes subidas: " + n, "ok"); }); }
+  setTimeout(() => sincronizarBitacora(false), 2500); // deja respirar el arranque
   // La clave vive en el Worker de Cloudflare: no se requiere onboarding.
   document.body.setAttribute("data-ready","true");
   iniciarReconocimiento(); // calienta el permiso (no arranca)
@@ -1165,6 +1347,7 @@ function init() {
   $("btnSettingsDone").addEventListener("click", () => cerrarModal("settingsModal"));
   $("btnHelp").addEventListener("click", () => abrirModal("helpModal"));
   $("btnCloseHelp").addEventListener("click", () => cerrarModal("helpModal"));
+  const ha = $("helpAskUrl"); if (ha) ha.textContent = WORKER_URL + "/ask?texto=¿…?&pin=SU_PIN&raw=1";
   if (cfg.autoStartMic) setTimeout(activarMicrofono, 800);
   log("VIERNES MARK IV iniciado", "ok");
 }
