@@ -326,6 +326,11 @@ input[type="range"]{width:100%;height:34px;accent-color:var(--accent-2);backgrou
    MÓVIL finura extra
    ============================================================ */
 @media (max-width:899px){
+  /* Estado (EN ESPERA / ESCUCHANDO / HABLANDO) bajado a la parte inferior en móvil.
+     El backdrop-filter de la topbar crearía un bloque de contención que ancla el
+     elemento fixed a ella: lo anulamos para que el estado quede libre en pantalla. */
+  .topbar{backdrop-filter:none}
+  .status-pill{position:fixed;z-index:70;left:50%;top:auto;bottom:calc(10px + env(safe-area-inset-bottom));transform:translateX(-50%);padding:4px 12px;background:rgba(2,8,16,.86);backdrop-filter:blur(8px)}
   /* Área de gesto inferior del iPhone: los controles nunca la pisan */
   .stage-actions{padding-bottom:calc(14px + env(safe-area-inset-bottom))}
   .settings-actions-row{padding-bottom:2px}
