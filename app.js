@@ -149,13 +149,13 @@ function iniciarReconocimiento() {
   };
   recognition.onresult = (e) => {
     // Viernes está hablando: ignorar (evita que el micrófono capte su propia voz)
-    if (speaking) { $("liveCaption").textContent = ""; return; }
+    if (speaking) return;
     let fin = "", inter = "";
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const r = e.results[i]; if (r.isFinal) fin += r[0].transcript + " "; else inter += r[0].transcript;
     }
     // Mientras usted sigue hablando, la frase se acumula: solo se procesa tras una pausa
-    if (inter) { $("liveCaption").textContent = inter; programarVuelco(); }
+    if (inter) programarVuelco();
     if (fin) acumularFinal(fin.trim());
   };
   recognition.onerror = (e) => {
@@ -176,7 +176,6 @@ function volcarBuffer() {
   const completo = (bufferFin || "").trim();
   bufferFin = "";
   if (!completo) return;
-  $("liveCaption").textContent = "";
   const clave = normalizar(completo);
   const ahora = Date.now();
   // Deduplicación: Chrome re-entrega la frase al reiniciar la sesión (llega mientras
