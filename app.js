@@ -966,7 +966,9 @@ function initEagleUI() {
 function starfield() {
   const cv = $("starfield"); if (!cv) return;
   const ctx = cv.getContext("2d"); let W, H, stars = [];
-  function resize() { W = cv.width = innerWidth; H = cv.height = innerHeight; stars = Array.from({length:120},()=>({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.3+.3,v:Math.random()*.4+.1})); }
+  // En pantallas pequeñas, menos estrellas: se ahorra GPU y batería
+  const MOVIL = Math.min(innerWidth, innerHeight) < 700;
+  function resize() { W = cv.width = innerWidth; H = cv.height = innerHeight; stars = Array.from({length: MOVIL ? 70 : 120},()=>({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.3+.3,v:Math.random()*.4+.1})); }
   function draw() { ctx.clearRect(0,0,W,H); ctx.fillStyle="#48e9ff"; for (const s of stars) { ctx.globalAlpha=.6; ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,7); ctx.fill(); s.y-=s.v; if (s.y<0){s.y=H;s.x=Math.random()*W;} } ctx.globalAlpha=1; requestAnimationFrame(draw); }
   resize(); draw(); addEventListener("resize", resize);
 }
@@ -1002,10 +1004,13 @@ function brainNetwork() {
   surco.quadraticCurveTo(cx + BW * 0.45, cy + BH * 0.22, cx + BW * 0.16, cy + BH * 0.58);
 
   // Neuronas dentro de la silueta (muestreo por rechazo)
+  // En móviles carga liviana: menos somas y sinapsis (GPU y batería)
+  const MOVIL = Math.min(innerWidth, innerHeight) < 700;
+  const NODOS = MOVIL ? 72 : 110, DMAX = MOVIL ? 76 : 88;
   const dentro = (x, y) => ctx.isPointInPath(silueta, x, y);
   const nodes = [];
   let intentos = 0;
-  while (nodes.length < 110 && intentos < 4000) {
+  while (nodes.length < NODOS && intentos < 4000) {
     intentos++;
     const x = cx + (Math.random() * 2 - 1) * BW * 1.05, y = cy + (Math.random() * 2 - 1) * BH * 1.05;
     if (!dentro(x, y)) continue;
@@ -1016,8 +1021,29 @@ function brainNetwork() {
   for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
     const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
     const d = Math.sqrt(dx * dx + dy * dy);
-    if (d < 88) links.push({ a: i, b: j, p: Math.random(), v: 0.005 + Math.random() * 0.012 });
+    if (d < DMAX) links.push({ a: i, b: j, p: Math.random(), v: 0.005 + Math.random() * 0.012 });
   }
+
+  // Halo pre-renderizado (sprite): evita crear gradientes en cada cuadro (costoso en móvil)
+  const crearSprite = (c) => {
+    const sp = document.createElement("canvas"); sp.width = sp.height = 64;
+    const x = sp.getContext("2d");
+    const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, `rgba(${c[0]},${c[1]},${c[2]},.85)`);
+    g.addColorStop(.45, `rgba(${c[0]},${c[1]},${c[2]},.30)`);
+    g.addColorStop(1, `rgba(${c[0]},${c[1]},${c[2]},0)`);
+    x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+    return sp;
+  };
+  const spCian = crearSprite([72, 233, 255]), spAmbar = crearSprite([255, 179, 0]);
+  // Relleno de la silueta precalculado (uno por color), atenuado con globalAlpha
+  const crearRelleno = (c) => {
+    const g = ctx.createRadialGradient(cx, cy - BH * 0.3, 10, cx, cy, BW * 1.2);
+    g.addColorStop(0, `rgba(${c[0]},${c[1]},${c[2]},.10)`);
+    g.addColorStop(1, `rgba(${c[0]},${c[1]},${c[2]},0)`);
+    return g;
+  };
+  const rellenoCian = crearRelleno([72, 233, 255]), rellenoAmbar = crearRelleno([255, 179, 0]);
 
   function draw(t) {
     if (miGen !== brainGen) return; // un cerebro nuevo tomó el lienzo
@@ -1034,9 +1060,10 @@ function brainNetwork() {
     ctx.strokeStyle = C(0.5 * g); ctx.lineWidth = 1.7;
     ctx.shadowColor = C(0.6); ctx.shadowBlur = activo ? 14 : 6;
     ctx.stroke(silueta);
-    const grad = ctx.createRadialGradient(cx, cy - BH * 0.3, 10, cx, cy, BW * 1.2);
-    grad.addColorStop(0, C(0.10 * g)); grad.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = grad; ctx.fill(silueta);
+    ctx.globalAlpha = activo ? 1 : 0.4;
+    ctx.fillStyle = st === "speaking" ? rellenoAmbar : rellenoCian;
+    ctx.fill(silueta);
+    ctx.globalAlpha = 1;
     ctx.restore();
 
     // surco lateral del lóbulo temporal
@@ -1087,10 +1114,9 @@ function brainNetwork() {
       ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 7); ctx.fill();
       if (n.glow > 0.05) {
         const rg = 6 + n.glow * 10;
-        const gr = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, rg);
-        gr.addColorStop(0, C(0.8 * n.glow)); gr.addColorStop(1, C(0));
-        ctx.fillStyle = gr;
-        ctx.beginPath(); ctx.arc(n.x, n.y, rg, 0, 7); ctx.fill();
+        ctx.globalAlpha = Math.min(1, n.glow * 0.9);
+        ctx.drawImage(st === "speaking" ? spAmbar : spCian, n.x - rg, n.y - rg, rg * 2, rg * 2);
+        ctx.globalAlpha = 1;
       }
     }
     requestAnimationFrame(draw);
