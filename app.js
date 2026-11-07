@@ -119,7 +119,8 @@ function systemPrompt() {
   const fecha = ahora.toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const hora = ahora.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
   const franja = ahora.getHours() < 12 ? "mañana" : ahora.getHours() < 19 ? "tarde" : "noche";
-  const contexto = "CONTEXTO ACTUAL: hoy es " + fecha + ", son las " + hora + " (" + franja + "). Úselo si es relevante; no lo recite sin motivo.\n";
+  const contexto = "CONTEXTO ACTUAL: hoy es " + fecha + ", son las " + hora + " (" + franja + "). Úselo si es relevante; no lo recite sin motivo.\n" +
+    (ubicacionActual && ubicacionActual.nombre ? "UBICACIÓN DEL JEFE: " + ubicacionActual.nombre + " (compartida por su teléfono; úsela cuando pregunte por lugares cercanos o el clima de aquí).\n" : "");
   return "Eres VIERNES, la asistente personal IA leal de " + (cfg.userName || "su jefe") + ", un hombre trabajador. " +
     "Hablas español de México, cálido pero eficiente: como un mayordomo de confianza que además es un equipo de élite.\n" +
     contexto +
@@ -249,6 +250,9 @@ async function activarMicrofono() {
   $("powerLabel").textContent = "ACTIVO";
   log("Escucha activa. Di «Viernes»…", "ok");
   pedirCandado();
+  if (!ubicacionActual || Date.now() - ubicacionActual.t > 6 * 3600 * 1000) {
+    actualizarUbicacion().then(u => log("Ubicación: " + u.nombre, "ok")).catch(e => log("Ubicación: " + e.message, "warn"));
+  }
 }
 function desactivarMicrofono() {
   listening = false;
@@ -445,7 +449,8 @@ function agregarMensaje(rol, texto, img) {
 
 // Comandos locales instantáneos (sin IA): hora, fecha, saludos, estado
 function normalizar(t) {
-  return (t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return (t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 function comandoLocal(texto) {
   const n = normalizar(texto);
@@ -464,8 +469,8 @@ function comandoLocal(texto) {
     const f = new Date().toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
     return tratoInicio() + ", hoy es " + f + ".";
   }
-  // Saludos
-  if (/^(hola|buenos dias|buenas tardes|buenas noches|hey|ey|que tal|buen dia)$/.test(n)) {
+  // Saludos (tolera vocativos al final: «hola Viernes», «buenas jefe»)
+  if (/^(hola|buenos dias|buenas tardes|buenas noches|hey|ey|que tal|buen dia|buenas)(\s+(viernes|jefe|senor|daniel|amiga|asistente|tu|usted|alla|ahi|hoy))*$/.test(n)) {
     return tratoInicio() + ", hola. Estoy a su servicio. ¿En qué le ayudo?";
   }
   // Quién eres
@@ -503,20 +508,56 @@ async function climaDe(lat, lon, lugar) {
     ", sensación de " + Math.round(c.apparent_temperature || c.temperature_2m) + " grados, humedad " +
     c.relative_humidity_2m + " por ciento, viento de " + Math.round(c.wind_speed_10m) + " kilómetros por hora.";
 }
+/* ==== UBICACIÓN: GPS con alta precisión, guardada y con motivo claro si falla ==== */
+let ubicacionActual = null; // { lat, lon, nombre, t }
+try { ubicacionActual = JSON.parse(localStorage.getItem("viernes_ubic") || "null"); } catch (e) { ubicacionActual = null; }
+async function nombreDeCoordenadas(lat, lon) {
+  try {
+    const r = await fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=es&zoom=10&lat=" + lat + "&lon=" + lon);
+    if (!r.ok) return "su ubicación";
+    const j = await r.json();
+    const a = j.address || {};
+    return [a.city || a.town || a.village || a.municipality || a.county, a.state].filter(Boolean).join(", ") || "su ubicación";
+  } catch (e) { return "su ubicación"; }
+}
+function obtenerUbicacion() {
+  return new Promise((res, rej) => {
+    if (!navigator.geolocation) return rej(new Error("Este navegador no comparte ubicación."));
+    navigator.geolocation.getCurrentPosition(
+      p => res({ lat: p.coords.latitude, lon: p.coords.longitude, t: Date.now() }),
+      e => rej(new Error(e.code === 1 ? "Permiso de ubicación denegado. Actívelo en el navegador." : e.code === 2 ? "No pude obtener la ubicación del teléfono." : "La ubicación tardó demasiado.")),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 600000 }
+    );
+  });
+}
+async function actualizarUbicacion() {
+  const p = await obtenerUbicacion();
+  const nombre = await nombreDeCoordenadas(p.lat, p.lon);
+  ubicacionActual = { lat: p.lat, lon: p.lon, nombre, t: p.t };
+  try { localStorage.setItem("viernes_ubic", JSON.stringify(ubicacionActual)); } catch (e) {}
+  return ubicacionActual;
+}
+const PALABRAS_LUGAR_PROPIO = /\b(mi|mis|aqui|aca|ahi|donde estoy|ubicacion|casa|local|oficina)\b/;
 async function comandoClima(texto) {
-  const m = texto.match(/(?:en|de|para)\s+([a-záéíóúñü\s]+)/i);
+  const m = texto.match(/\b(?:en|de|para)\s+([a-záéíóúñü\s]{3,})[?!.,\s]*$/i);
   let geo = null;
-  if (m) {
-    const nombre = m[1].trim().replace(/^(la|el|los|las)\s+/i, "");
+  const nombre = m ? m[1].trim().replace(/^(la|el|los|las)\s+/i, "") : "";
+  if (nombre && !PALABRAS_LUGAR_PROPIO.test(normalizar(nombre))) {
     geo = await buscarCiudad(nombre);
+    if (!geo) return tratoInicio() + ", no encontré la ciudad «" + nombre + "». Pronúnciela de otra forma o pregúnteme por su ubicación.";
   }
-  if (!geo && navigator.geolocation) {
+  if (!geo) {
     try {
-      const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 8000, maximumAge: 300000 }));
-      geo = { lat: pos.coords.latitude, lon: pos.coords.longitude, nombre: "su ubicación" };
-    } catch (e) {}
+      const u = await actualizarUbicacion();
+      geo = { lat: u.lat, lon: u.lon, nombre: u.nombre };
+    } catch (e) {
+      if (ubicacionActual && Date.now() - ubicacionActual.t < 6 * 3600 * 1000) {
+        geo = { lat: ubicacionActual.lat, lon: ubicacionActual.lon, nombre: ubicacionActual.nombre };
+      } else {
+        return tratoInicio() + ", " + e.message.charAt(0).toLowerCase() + e.message.slice(1);
+      }
+    }
   }
-  if (!geo) return null;
   return await climaDe(geo.lat, geo.lon, geo.nombre);
 }
 
