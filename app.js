@@ -4,7 +4,7 @@
 const DEFAULTS = {
   provider: "groq", apiKey: "", rememberKey: true, preferServerKey: false,
   connectionMode: "auto", baseUrl: "https://api.groq.com/openai/v1", proxyBase: "",
-  model: "openai/gpt-oss-120b", reasoning: "high", groqVisionModel: "qwen/qwen3.8-27b",
+  model: "openai/gpt-oss-120b", reasoning: "high", groqVisionModel: "meta-llama/llama-4-scout-17b-16e-instruct",
   maxTokens: 8192, webSearch: true, xSearch: false,
   voiceEngine: "browser", xaiVoice: "eve", xaiLang: "es-MX", browserVoice: "",
   rate: 1.0, pitch: 1.0, autoSpeak: true, sounds: true,
@@ -55,9 +55,17 @@ function perfilRazonamiento(texto, conImagen) {
 }
 
 async function groqChat(mensajes, opts = {}) {
-  const body = { model: cfg.model, messages: mensajes, temperature: opts.temperature != null ? opts.temperature : 0.6, max_tokens: cfg.maxTokens };
+  const visModel = opts.imagen ? (cfg.groqVisionModel || "meta-llama/llama-4-scout-17b-16e-instruct") : cfg.model;
+  const body = { model: visModel, messages: mensajes, temperature: opts.temperature != null ? opts.temperature : 0.6, max_tokens: cfg.maxTokens };
   // Los modelos de razonamiento de Groq aceptan reasoning_effort ( bajo | medio | alto )
-  if (opts.effort && /gpt-oss|qwen3|deepseek-r1/i.test(cfg.model)) body.reasoning_effort = opts.effort;
+  if (opts.effort && /gpt-oss|qwen3|llama-4|deepseek-r1/i.test(visModel)) body.reasoning_effort = opts.effort;
+  // Visión: la última frase del usuario viaja multimodal si hay imagen capturada
+  if (opts.imagen) {
+    const u = body.messages[body.messages.length - 1];
+    const txt = typeof u.content === "string" ? u.content : "Describa la imagen.";
+    u.content = [{ type: "text", text: txt }, { type: "image_url", image_url: { url: opts.imagen } }];
+    delete body.reasoning_effort; // los modelos de visión de Groq no aceptan reasoning_effort
+  }
   let r = await fetch(WORKER_URL + "/", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (!r.ok) {
     const t = await r.text().catch(() => "");
@@ -290,7 +298,7 @@ function procesarVoz(texto) {
   const tieneWake = w.some(k => n.includes(k));
   if (Date.now() - ultimaRespuesta < cfg.followUp * 1000) { enviarTexto(texto); return; }
   if (tieneWake) {
-    const resto = n; let cmd = texto;
+    let cmd = texto;
     for (const k of w) { const idx = n.indexOf(k); if (idx >= 0) { cmd = texto.slice(idx + k.length).trim(); break; } }
     if (!cmd) {
       // Dijo solo la palabra de activación: esperar la petición que llega separada
@@ -682,9 +690,11 @@ async function sincronizarPendientes(silencioso) {
     const j = await r.json();
     const items = (j && j.items) || [];
     if (!items.length) return;
+    const vistos = new Set(recordatorios.map(r2 => r2.id));
     let n = 0;
     for (const it of items) {
       if (!it || !it.t) continue;
+      if (it.id && vistos.has(it.id)) continue; // otra pestaña ya lo recogió: no duplicar
       // Si el evento venció mientras la app estaba cerrada y es puntual, se avisa igualmente por bitácora; aquí solo vivos
       if (!it.rep && it.t < Date.now()) continue;
       recordatorios.push({ id: it.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 5)), tipo: it.tipo === "alarma" ? "alarma" : "recordatorio", txt: it.txt || "", t: it.t, rep: it.rep || null, hecho: false });
@@ -781,11 +791,11 @@ function parsearCuando(n) {
     // Repetición
     if (/\b(cada manana|todas las mananas|todos los dias|cada dia|diario)\b/.test(n)) rep = "daily";
     // Hora
-    const HORA = /\ba las?\s+(\d{1,2})(?:\s*[:.]\s*|\s+y\s+|\s+)?(\d{2}|media)?(?:\s*(?:de la\s+)?(manana|tarde|noche|madrugada|am|pm))?\b/;
+    const HORA = /\ba las?\s+(\d{1,2})(?:\s*[:.]\s*|\s+y\s+|\s+)?(\d{2}|media|cuarto)?(?:\s*(?:de la\s+)?(manana|tarde|noche|madrugada|am|pm))?\b/;
     if ((m = n.match(HORA))) {
       let hh = parseInt(m[1]);
       const mmRaw = m[2] || "";
-      const mm = mmRaw === "media" ? 30 : parseInt(mmRaw || 0);
+      const mm = mmRaw === "media" ? 30 : mmRaw === "cuarto" ? 15 : parseInt(mmRaw || 0);
       const marc = m[3] || "";
       if (marc === "pm" || marc === "tarde" || marc === "noche") { if (hh < 12) hh += 12; }
       const d = new Date(base);
@@ -853,7 +863,7 @@ async function comandoRecordatorio(texto) {
     let base = n
       .replace(/^(despiertame|despierta me|alarmame|alarma|ponme|pon me|pon una alarma|crea una alarma|una alarma|recuerdame|recuerda me|recuerdeme|recordar)\b/, "")
       .replace(/\bsobre\b|\bacerca de\b/, " ").trim();
-    const trozosTiempo = /((en (una|media|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|quince|veinte|treinta|\d+)\s*(minutos?|horas?))|((pasado )?manana)|\bhoy\b|\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b|\ba las?\s+\d{1,2}(?:\s*[:.]\s*|\s+y\s+|\s+)?(\d{2}|media)?(?:\s*(?:de la\s+)?(manana|tarde|noche|madrugada|am|pm))?|al mediodia|\b(cada manana|todas las mananas|todos los dias|cada dia|diario)\b)/g;
+    const trozosTiempo = /((en (una|media|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|quince|veinte|treinta|\d+)\s*(minutos?|horas?))|((pasado )?manana)|\bhoy\b|\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b|\ba las?\s+\d{1,2}(?:\s*[:.]\s*|\s+y\s+|\s+)?(\d{2}|media|cuarto)?(?:\s*(?:de la\s+)?(manana|tarde|noche|madrugada|am|pm))?|al mediodia|\b(cada manana|todas las mananas|todos los dias|cada dia|diario)\b)/g;
     cuerpo = base.replace(trozosTiempo, " ").replace(/\s+/g, " ").replace(/^(que|de|para|a)\s+/i, "").replace(/\s+(que|de|para|a|el|la|los|al)\s*$/i, "").trim();
   }
   const drv = esAlarma ? "alarma" : "recordatorio";
@@ -865,7 +875,6 @@ async function comandoRecordatorio(texto) {
 }
 
 /* Disparo: pitidos + notificación + tarjeta + voz. Revisa cada 15 s. */
-let ultimoDisparo = 0;
 function pitorrear(veces) {
   try {
     const ac = acPitidos || (acPitidos = new (window.AudioContext || window.webkitAudioContext)());
@@ -887,10 +896,14 @@ function checkRecordatorios() {
   for (const r2 of recordatorios) {
     if (r2.hecho || r2.t > ahora) continue;
     r2.hecho = true; cambios = true;
-    if (r2.rep === "daily") { r2.t += 864e5; r2.hecho = false; }
-    const atraso = Math.round((ahora - r2.t) / 60e3);
+    if (r2.rep === "daily") {
+      // Page cerrada N días: rodar hasta el día FUTURO y avisar UNA sola vez
+      while (r2.t + 864e5 <= ahora) { r2.t += 864e5; }
+      r2.t += 864e5; r2.hecho = false;
+    }
+    const atraso = Math.max(0, Math.round((ahora - (r2.t - (r2.rep === "daily" ? 864e5 : 0))) / 60e3));
     const cuerpo = r2.txt || (r2.tipo === "alarma" ? "Despierte, es su alarma." : "Su recordatorio.");
-    const mensaje = (r2.txt ? (r2.tipo === "alarma" ? "Alarma: " : "Recordatorio: ") : "") + cuerpo + (atraso >= 2 ? " Le aviso con " + atraso + " minutos de atraso." : "");
+    const mensaje = (r2.txt ? (r2.tipo === "alarma" ? "Alarma: " : "Recordatorio: ") : "") + cuerpo + (atraso >= 2 && atraso < 1440 ? " Le aviso con " + atraso + " minutos de atraso." : "");
     pitorrear(r2.tipo === "alarma" ? 3 : 1);
     try {
       if (window.Notification && Notification.permission === "granted") new Notification("VIERNES · " + (r2.tipo === "alarma" ? "ALARMA" : "RECORDATORIO"), { body: cuerpo || "Sonó su alarma." });
@@ -1010,8 +1023,9 @@ async function comandoCorreo(texto) {
   const V = window.ViernesMail;
   if (!V || !esComandoCorreo(texto)) return null;
   const n = normalizar(texto);
-  // "enviar/guardar" solo aplican si hay un borrador pendiente; si no, dejar pasar a Groq
-  const esEnviar = /(^|\s)(envia|enviar|envialo|enviala|mandalo|mandala|si|dale|ok|claro)(\s|$)/.test(n) && borradorActual;
+  // "enviar/guardar" solo aplican si hay un borrador pendiente; si no, dejar pasar a Groq.
+  // Solo verbos claros de acción: "si", "ok", "claro" solos podían secuestrar frases ajenas.
+  const esEnviar = /(^|\s)(envia|enviar|envialo|enviala|mandalo|mandala)(\s|$)/.test(n) && borradorActual;
   const esGuardar = /guarda borrador|guardar borrador/.test(n) && borradorActual;
   if (!V.isConnected()) {
     return tratoInicio() + ", aún no tiene el correo conectado. Abra Ajustes, pestaña Correo, y toque Conectar Gmail.";
@@ -1275,9 +1289,9 @@ async function enviarTexto(texto) {
     }
     if (!resp) {
       // Memoria amplia: 16 turnos para conservar el hilo de la conversación
-      const msgs = [{ role: "system", content: systemPrompt() }, ...historial.slice(-16), { role: "user", content: texto || "(imagen)" }];
+      const msgs = [{ role: "system", content: systemPrompt() }, ...historial.slice(-16), { role: "user", content: texto || "Describa esta imagen con detalle." }];
       const { effort, temperature } = perfilRazonamiento(texto, !!contextoImagen);
-      resp = await groqChat(msgs, { effort, temperature });
+      resp = await groqChat(msgs, { effort, temperature, imagen: contextoImagen || null });
       // Solo la IA pasa por normalización de trato (los comandos locales ya traen el suyo)
       resp = prepararRespuesta(resp);
     }
@@ -1647,11 +1661,16 @@ function init() {
   // Migración única: actualizar cerebro guardado por versiones anteriores
   // (20B/medio/4096 → 120B/alto/8192). Se respeta una clave personalizada.
   try {
-    if (localStorage.getItem("viernes_mig") !== "2") {
-      if (cfg.model === "openai/gpt-oss-20b") cfg.model = "openai/gpt-oss-120b";
-      if (cfg.reasoning === "medium") cfg.reasoning = "high";
-      if (cfg.maxTokens === 4096) cfg.maxTokens = 8192;
-      localStorage.setItem("viernes_mig", "2");
+    const mig = localStorage.getItem("viernes_mig");
+    if (mig !== "3") {
+      if (mig !== "2") { // migración antigua: cerebro 20B → 120B
+        if (cfg.model === "openai/gpt-oss-20b") cfg.model = "openai/gpt-oss-120b";
+        if (cfg.reasoning === "medium") cfg.reasoning = "high";
+        if (cfg.maxTokens === 4096) cfg.maxTokens = 8192;
+      }
+      // migración 3: el modelo de visión qwen no existe → llama-4-scout (visión real de Groq)
+      if (/qwen/.test(cfg.groqVisionModel || "")) cfg.groqVisionModel = "meta-llama/llama-4-scout-17b-16e-instruct";
+      localStorage.setItem("viernes_mig", "3");
       save();
     }
   } catch (e) {}

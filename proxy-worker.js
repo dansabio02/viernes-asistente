@@ -76,10 +76,10 @@ function parsearTiempoRemoto(pn, off) {
   }
   const rep = /\b(cada manana|todas las mananas|todos los dias|cada dia|diario)\b/.test(pn) ? "daily" : null;
   let t = null;
-  if ((m = pn.match(/\ba las?\s+(\d{1,2})(?:\s*[:.]\s*|\s+y\s+|\s+)?(\d{2}|media)?(?:\s*(?:de la\s+)?(manana|tarde|noche|madrugada|am|pm))?\b/))) {
+  if ((m = pn.match(/\ba las?\s+(\d{1,2})(?:\s*[:.]\s*|\s+y\s+|\s+)?(\d{2}|media|cuarto)?(?:\s*(?:de la\s+)?(manana|tarde|noche|madrugada|am|pm))?\b/))) {
     let hh = parseInt(m[1]);
     const mmRaw = m[2] || "";
-    const mm = mmRaw === "media" ? 30 : parseInt(mmRaw || 0);
+    const mm = mmRaw === "media" ? 30 : mmRaw === "cuarto" ? 15 : parseInt(mmRaw || 0);
     const marc = m[3] || "";
     if (marc === "pm" || marc === "tarde" || marc === "noche") { if (hh < 12) hh += 12; }
     const d = new Date(base.getTime() + deltaDias * 864e5);
@@ -284,7 +284,7 @@ export default {
             .replace(/^(?:despi[eé]rtame|despierta me|alarmame|ponme una alarma|pon una alarma|una alarma|alarma|recu[eé]rd(?:ame|a me)|recuerdeme|recordatorios?|recordar)\b[).:,]?\s*/i, "")
             .replace(/^que\s+/i, "")
             .replace(/\bcada\s+(manana|mañana|dia|día|todas las mananas|todos los dias)\b/i, "")
-            .replace(/\ba las?\s*\d{1,2}(?:[:.]\s*\d{2}|\s+y\s+media|\s+\d{2})?(?:\s*de la\s*)?(?:manana|mañana|madrugada|tarde|noche|am|pm)?\b/i, "")
+            .replace(/\ba las?\s*\d{1,2}(?:[:.]\s*\d{2}|\s+y\s+media|\s+y\s+cuarto|\s+\d{2})?(?:\s*de la\s*)?(?:manana|mañana|madrugada|tarde|noche|am|pm)?\b/i, "")
             .replace(/\bal mediod[ií]a\b|\ben media hora\b|\ben\s+(un|una|\d+)\s+cuart[oa]s? de hora\b|\ben\s+\d+\s+(minutos?|horas?)\b/i, "")
             .replace(/\b((pasado )?mañana|mañana|hoy|lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo)\b/i, "")
             .replace(/\s+/g, " ").replace(/^[,;:.]\s*/, "").replace(/^(el|la|los|las|que|de|para|a|al)\s+/i, "").replace(/\s+(el|la|los|las|de|para|a)$/i, "").trim();
