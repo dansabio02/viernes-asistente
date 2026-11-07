@@ -27,8 +27,13 @@
 //   GET  /ask?texto=…&pin=&tz=-6  → preguntar a VIERNES SIN ABRIR LA PÁGINA
 //        (atiende MANOS: «apunta …» nota, «recuérdame … a las …» recordatorio,
 //        «despiértame …» alarma, «mis notas», «mis recordatorios»; lo demás va
-//        al LLM). Devuelve la respuesta; con &raw=1 solo texto plano para que
-//        el atajo lo lea en voz alta. tz = desfase UTC del jefe (por defecto -6).
+//        al LLM). El cerebro además RECIBE BÚSQUEDA WEB: si la pregunta pide
+//        información (qué/quién/cuándo/noticias/precio…), se consultan
+//        resultados frescos (motor gratis de DuckDuckGo) y llegan al LLM
+//        como contexto, citando la fuente. El mismo beneficio vale para la
+//        app en el teléfono (el proxy POST /) y el atajo. Devuelve la
+//        respuesta; con &raw=1 solo texto plano para que el atajo
+//        lo lea en voz alta. tz = desfase UTC del jefe (por defecto -6).
 //   GET  /pend?pin=   → descarga y VACÍA la cola de recordatorios creados
 //        por atajo (los recoge la app al abrir). Cada movimiento queda en bitácora.
 //   GET  /log?pin=&desde=…   → bitácora (apunta todo lo ocurrido fuera de casa)
@@ -98,6 +103,60 @@ function describeRemoto(t, off) {
   const dif = Math.round((diaD0.getTime() - hoyD0.getTime()) / 864e5);
   const diaTxt = dif === 0 ? "hoy" : dif === 1 ? "mañana" : DIAS[diaPos.getUTCDay()];
   return diaTxt + " a las " + hora;
+}
+
+/* ── BÚSQUEDA WEB PARA EL CEREBRO (gratuita, sin API key) ──
+   El modelo no tiene internet; aquí se lo buscamos: si la pregunta
+   pide información (qué/quién/cuándo/cuánto/noticias/precio…), se
+   consulta el motor público de DuckDuckGo (versión HTML) y los
+   primeros resultados se inyectan en el contexto del LLM. */
+const CHARLAPEQUE = /\b(como estas|como te sientes|como te llamas|quien eres|que eres|que hora es|que dia es|hola|buenas tardes|buenas noches|buenos dias|gracias|adios|hasta luego|que tal|que me dices|dime un chiste|eres real|que puedes hacer|que sabes hacer)\b/;
+const PREGUNTAINFO = /\b(que|quien|quienes|cuando|cuanto|cuantos|cual|cuales|donde|como|por que|busca|buscame|noticias|noticia|precio|cuesta|vale|cotizacion|recomienda|hay|existen|que es|quien es|cuando se|como se hace|dime sobre|informacion sobre)\b/;
+function quiereBusqueda(texto) {
+  const t = String(texto).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  if (t.length < 14 || CHARLAPEQUE.test(t)) return false; // charla corta o de diario: no buscar
+  if (/^(apunta\w*|anota\w*|toma nota|recuerda(?:me)?|despiertame|alarmame|almame|borra(?:me)?|lee(?:me)?|dime mis)\b/.test(t) && !/\b(busca|noticias|precio|cotizacion)\b/.test(t)) return false; // las manos de VIERNES, no la web
+  return PREGUNTAINFO.test(t);
+}
+function quitarTags(s) {
+  return String(s)
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&amp;/g, "&").replace(/&quot;/g, "\"").replace(/&#x27;|&#39;/g, "'")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ").trim();
+}
+async function buscarWeb(q, max = 5) {
+  const sig = (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(8000) : undefined;
+  const url = "https://html.duckduckgo.com/html/?kl=es-mx&q=" + encodeURIComponent(String(q).slice(0, 240));
+  const r = await fetch(url, {
+    signal: sig,
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+      "Accept-Language": "es-MX,es;q=0.9",
+    },
+  });
+  if (!r.ok) throw new Error("Busqueda HTTP " + r.status);
+  const html = await r.text();
+  const titulos = [...html.matchAll(/<a([^>]*class="[^"]*result__a[^"]*"[^>]*)>([\s\S]*?)<\/a>/g)];
+  const resumenes = [...html.matchAll(/<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/g)];
+  const out = [];
+  for (let i = 0; i < titulos.length && out.length < max; i++) {
+    const attrs = titulos[i][1] || "";
+    const uddg = (attrs.match(/uddg=([^&"]+)/) || [])[1] || "";
+    let dom = "";
+    try { const u2 = decodeURIComponent(uddg); dom = u2.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, ""); } catch (e) {}
+    const titulo = quitarTags(titulos[i][2]);
+    if (!titulo) continue;
+    out.push({ titulo, snippet: resumenes[i] ? quitarTags(resumenes[i][1]).slice(0, 320) : "", dom });
+  }
+  return out;
+}
+function contextoBusqueda(res) {
+  if (!res || !res.length) return "";
+  const d = new Date(Date.now() - 6 * 3600e3).toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric", timeZone: "America/Mexico_City" });
+  return "\n\nRESULTADOS DE BÚSQUEDA EN LA WEB (" + d + "), información más reciente que su memoria de entrenamiento:\n" +
+    res.map((x, i) => (i + 1) + ". " + x.titulo + (x.snippet ? ". " + x.snippet : "") + (x.dom ? " [fuente: " + x.dom + "]" : "")).join("\n") +
+    "\nSi la pregunta pedía información actual, respóndala apoyándose en estos resultados y mencione la fuente con naturalidad. Si no dan claridad, dígalo con franqueza en vez de inventar.";
 }
 
 export default {
@@ -248,13 +307,17 @@ export default {
       // Contexto: últimas notas + últimos intercambios, para que "recuerde"
       const key = ((env && env.GROQ_API_KEY) || (request.env && request.env.GROQ_API_KEY)) || "";
       if (!key) return respuesta({ error: "Falta GROQ_API_KEY" }, "*", 500);
-      const notas = (await leerClave(K.notas, [])).slice(0, 10);
+      let notas = (await leerClave(K.notas, [])).slice(0, 10);
       const bit = (await leerClave(K.bit, [])).slice(-10);
       const ctxNotas = notas.length ? "NOTAS RECIENTES DEL JEFE:\n" + notas.map((n) => "- " + n.txt).join("\n") : "";
       const ctxBit = bit.length ? "INTERCAMBIOS RECIENTES:\n" + bit.map((b) => b.tipo + ": " + b.txt).join("\n") : "";
+      let ctxWeb = "";
+      if (quiereBusqueda(pregunta)) {
+        try { ctxWeb = contextoBusqueda(await buscarWeb(pregunta)); } catch (e) { await bitacoraAdd("busqueda", "falló: " + e.message); }
+      }
       const sys = "Eres VIERNES, asistente personal leal y eficiente. Hablas español de México, natural y breve, " +
         "para ser leído en voz alta (1 a 5 frases, sin listas ni emojis). No escribas ningún saludo de tratamiento; " +
-        "el sistema lo agrega. Responde directo y útil." + (ctxNotas ? "\n" + ctxNotas : "") + (ctxBit ? "\n" + ctxBit : "");
+        "el sistema lo agrega. Responde directo y útil." + ctxWeb + (ctxNotas ? "\n" + ctxNotas : "") + (ctxBit ? "\n" + ctxBit : "");
       try {
         const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
@@ -396,7 +459,27 @@ export default {
     }
 
     try {
-      const body = await request.text();
+      let body = await request.text();
+      // BÚSQUEDA WEB: si la última frase del jefe pide información, se
+      // inyectan resultados frescos en el mensaje del sistema (sin tocar
+      // nada más: para Groq la petición sigue siendo idéntica).
+      try {
+        const j = JSON.parse(body);
+        const msgs = Array.isArray(j && j.messages) ? j.messages : [];
+        const ultima = [...msgs].reverse().find((m) => m && m.role === "user");
+        const textoU = ultima && typeof ultima.content === "string" ? ultima.content : "";
+        if (textoU && quiereBusqueda(textoU)) {
+          const res = await buscarWeb(textoU);
+          const inj = contextoBusqueda(res);
+          if (inj) {
+            const idx = msgs.findIndex((m) => m.role === "system");
+            if (idx >= 0) msgs[idx] = { ...msgs[idx], content: (msgs[idx].content || "") + inj };
+            else msgs.unshift({ role: "system", content: inj.trim() });
+            j.messages = msgs;
+            body = JSON.stringify(j);
+          }
+        }
+      } catch (e) { /* sin búsqueda: el proxy sigue transparente */ }
       const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
