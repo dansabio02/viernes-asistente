@@ -13,11 +13,14 @@ const GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/gmail.compose",
   "https://www.googleapis.com/auth/gmail.send",
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.readonly",
 ].join(" ");
 
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
+const CAL_API = "https://www.googleapis.com/calendar/v3";
 
 /* ── utilidades base64 / PKCE ── */
 function bytesToB64url(bytes) {
@@ -244,6 +247,45 @@ async function disconnect() {
   clearTokens();
 }
 
+/* ── CALENDARIO DE GOOGLE (misma sesión OAuth; pide permiso nuevo al usarse) ── */
+async function apiCal(path, opts = {}) {
+  const token = await getValidToken();
+  const r = await fetch(CAL_API + path, {
+    ...opts,
+    headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json", ...(opts.headers || {}) },
+  });
+  if (r.status === 401) { clearTokens(); throw new Error("Sesión expirada. Reconecte el correo."); }
+  if (r.status === 403 && (await r.text().catch(() => "")).includes("Calendar API has not been used")) {
+    throw new Error("Habilite la Calendar API en su proyecto de Google Cloud.");
+  }
+  if (!r.ok) { const t = await r.text().catch(() => ""); throw new Error("Calendario HTTP " + r.status + ": " + t.slice(0, 120)); }
+  return r.json();
+}
+// Eventos de un rango (ISO completo): [{id, titulo, inicio(Date), fin(Date), todoElDia}]
+async function calendarioListar(desdeISO, hastaISO, max = 15) {
+  const j = await apiCal("/calendars/primary/events?timeMin=" + encodeURIComponent(desdeISO) +
+    "&timeMax=" + encodeURIComponent(hastaISO) + "&maxResults=" + max + "&singleEvents=true&orderBy=startTime");
+  return (j.items || []).map((e) => ({
+    id: e.id,
+    titulo: e.summary || "(sin título)",
+    inicio: e.start && e.start.dateTime ? new Date(e.start.dateTime) : (e.start && e.start.date ? new Date(e.start.date + "T00:00:00") : null),
+    fin: e.end && e.end.dateTime ? new Date(e.end.dateTime) : null,
+    todoElDia: !!(e.start && e.start.date && !e.start.dateTime),
+  }));
+}
+async function calendarioCrear({ titulo, inicio, fin, descripcion, todoElDia }) {
+  const ev = { summary: titulo, description: descripcion || "" };
+  if (todoElDia) {
+    ev.start = { date: inicio.toISOString().slice(0, 10) };
+    ev.end = { date: fin ? fin.toISOString().slice(0, 10) : new Date(inicio.getTime() + 864e5).toISOString().slice(0, 10) };
+  } else {
+    ev.start = { dateTime: inicio.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+    ev.end = { dateTime: (fin || new Date(inicio.getTime() + 36e5)).toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+  }
+  const j = await apiCal("/calendars/primary/events", { method: "POST", body: JSON.stringify(ev) });
+  return { id: j.id, htmlLink: j.htmlLink };
+}
+
 /* ── exponer ── */
 window.ViernesMail = {
   getClientId, setClientId, getRedirectUri,
@@ -251,4 +293,5 @@ window.ViernesMail = {
   authorize, handleCallback, getValidToken,
   getProfile, listUnread, getMessageMeta, getMessage,
   sendMail, createDraft, markRead, disconnect,
+  calendarioListar, calendarioCrear,
 };

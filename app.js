@@ -253,6 +253,7 @@ async function activarMicrofono() {
   if (!ubicacionActual || Date.now() - ubicacionActual.t > 6 * 3600 * 1000) {
     actualizarUbicacion().then(u => log("Ubicación: " + u.nombre, "ok")).catch(e => log("Ubicación: " + e.message, "warn"));
   }
+  try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch (e) {}
 }
 function desactivarMicrofono() {
   listening = false;
@@ -714,6 +715,247 @@ function j_ultimoEvento() {
   return "al día y al tanto, " + (historial.length ? "con los últimos intercambios en mi memoria." : "sin eventos pendientes.");
 }
 
+/* ==== RECORDATORIOS Y ALARMAS ====
+   Funcionan mientras la página está abierta (el Wake Lock sostiene la pantalla).
+   «Despiértame mañana a las 6» → alarma (con pitidos, se repite si pide "cada mañana").
+   «Recuérdame comprar pan a las 5 de la tarde» → recordatorio puntual.
+   Tiempo natural: hoy/mañana/pasado mañana/día de la semana/en X minutos/horas/medio día. */
+let recordatorios = [];
+try { recordatorios = JSON.parse(localStorage.getItem("viernes_rec") || "[]"); } catch (e) { recordatorios = []; }
+function guardarRecordatorios() { try { localStorage.setItem("viernes_rec", JSON.stringify(recordatorios.slice(-40))); } catch (e) {} }
+
+const SECS_DIA = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"];
+// Extrae CUÁNDO de la frase (texto ya normalizado, sin acentos ni signos)
+function parsearCuando(n) {
+  const hoy = new Date(); hoy.setSeconds(0, 0);
+  let t = null, rep = null, cuandoTxt = "", m;
+  // Relativo: en X minutos/horas, en media hora
+  if ((m = n.match(/\ben (media) hora\b/))) { t = new Date(Date.now() + 30 * 60e3); cuandoTxt = m[0]; }
+  else if ((m = n.match(/\ben\s+(una|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|quince|veinte|treinta|\d+)\s+(minutos?|horas?)\b/))) {
+    const mapa = { una: 1, un: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, quince: 15, veinte: 20, treinta: 30 };
+    const cant = mapa[m[1]] !== undefined ? mapa[m[1]] : parseInt(m[1]);
+    const mins = /minut/.test(m[2]) ? cant : cant * 60;
+    t = new Date(Date.now() + mins * 60e3); cuandoTxt = m[0];
+  }
+  if (!t) {
+    // Día base: hoy / mañana / pasado mañana / día de la semana
+    let base = new Date(hoy);
+    let diaTxt = "";
+    if ((m = n.match(/\bpasado manana\b/))) { base.setDate(base.getDate() + 2); diaTxt = m[0]; }
+    else if ((m = n.match(/\bmanana\b/))) { base.setDate(base.getDate() + 1); diaTxt = m[0]; }
+    else if ((m = n.match(/\bhoy\b/))) { diaTxt = m[0]; }
+    else if ((m = n.match(new RegExp("\\b(" + SECS_DIA.join("|") + ")\\b")))) {
+      const destino = SECS_DIA.indexOf(m[1]);
+      let delta = (destino - ((base.getDay() + 6) % 7) + 7) % 7;
+      if (delta === 0) delta = 7; // "el viernes" en viernes → el próximo
+      base.setDate(base.getDate() + delta); diaTxt = m[0];
+    }
+    // Repetición
+    if (/\b(cada manana|todas las mananas|todos los dias|cada dia|diario)\b/.test(n)) rep = "daily";
+    // Hora
+    const HORA = /\ba las?\s+(\d{1,2})(?:\s*[:.]\s*|\s+y\s+|\s+)?(\d{2}|media)?(?:\s*(?:de la\s+)?(manana|tarde|noche|madrugada|am|pm))?\b/;
+    if ((m = n.match(HORA))) {
+      let hh = parseInt(m[1]);
+      const mmRaw = m[2] || "";
+      const mm = mmRaw === "media" ? 30 : parseInt(mmRaw || 0);
+      const marc = m[3] || "";
+      if (marc === "pm" || marc === "tarde" || marc === "noche") { if (hh < 12) hh += 12; }
+      const d = new Date(base);
+      d.setHours(hh, mm);
+      if (d.getTime() <= Date.now() - 60e3) d.setDate(d.getDate() + 1); // ya pasó: al día siguiente
+      t = d; cuandoTxt = (diaTxt + " " + m[0]).trim();
+    } else if ((m = n.match(/\bal mediodia\b/))) {
+      const d = new Date(base); d.setHours(12, 0);
+      if (d.getTime() <= Date.now() - 60e3) d.setDate(d.getDate() + 1);
+      t = d; cuandoTxt = diaTxt + " al mediodia";
+    } else if (diaTxt) {
+      // Día sin hora: "recuérdame comprar pan mañana" → default 8 am
+      const d = new Date(base); d.setHours(8, 0);
+      t = d; cuandoTxt = diaTxt;
+    }
+  }
+  if (t) return { t: t.getTime(), rep, cuandoTxt: cuandoTxt.trim() };
+  return null;
+}
+function descripcionCuando(t) {
+  const d = new Date(t), ahora = Date.now();
+  const hora = d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+  const dias = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+  const mismoDia = d.toDateString() === new Date().toDateString();
+  const manana = d.toDateString() === new Date(Date.now() + 864e5).toDateString();
+  const diaN = manana ? "mañana" : mismoDia ? "hoy" : dias[d.getDay()];
+  const mm = Math.round((t - ahora) / 60e3);
+  const relativo = mm <= 1 ? "inmediatamente" : mm < 60 ? "en " + mm + " minutos" : Math.round(mm / 60) + " hora" + (Math.round(mm / 60) === 1 ? "" : "s");
+  return diaN + " a las " + hora + " (" + relativo + ")";
+}
+
+/* Módulo de voz: crear/listar/borrar recordatorios y alarmas */
+async function comandoRecordatorio(texto) {
+  const n = normalizar(texto);
+  const esAlarma = /^(despiertame|despierta me|alarmame|alarma|pon me|ponme|pon una|crea una|una alarma)\b/.test(n);
+  const esRecuerdo = /^(recuerdame|recuerda me|recuerdeme|recordar)\b/.test(n);
+  if (!esAlarma && !esRecuerdo && !/^(ve|dime|lista|cuales|borra|elimina|cancela)\b.*\b(recordatorio|recordatorios|alarma|alarmas)\b|^mis (recordatorios|alarmas)|^que (recordatorios|alarmas) tengo/.test(n)) return null;
+
+  // LISTAR
+  if (/\b(recordatorios|alarmas|recordatorio)\b/.test(n) && /^(ve|dime|listame|lista|cuales|mis|que)/.test(n)) {
+    const vivos = recordatorios.filter(r2 => !r2.hecho).sort((a, b) => a.t - b.t);
+    if (!vivos.length) return tratoInicio() + ", no tiene recordatorios ni alarmas pendientes.";
+    if (vivos.length === 1) { const r2 = vivos[0]; return tratoInicio() + ", solo queda " + (r2.tipo === "alarma" ? "la alarma" : "el recordatorio") + ": " + (r2.txt || "despertar") + ", " + descripcionCuando(r2.t) + "."; }
+    return tratoInicio() + ", tiene " + vivos.map((r2, i) => (i + 1) + " " + (r2.tipo === "alarma" ? "alarma" : "recordatorio") + " de " + (r2.txt || "despertar") + " " + descripcionCuando(r2.t)).join(". ") + ".";
+  }
+  // BORRAR
+  if (/^(borra|elimina|cancela)\b/.test(n)) {
+    let hechos = 0;
+    if (/\btodas?\b|\btodo\b/.test(n)) { hechos = recordatorios.length; recordatorios = []; guardarRecordatorios(); return tratoInicio() + ".";
+    }
+    const proximo = recordatorios.filter(r2 => !r2.hecho).sort((a, b) => a.t - b.t)[0];
+    if (proximo) { recordatorios = recordatorios.filter(r2 => r2.id !== proximo.id); hechos = 1; guardarRecordatorios(); }
+    return hechos ? tratoInicio() + ", borrado" + (proximo.tipo === "alarma" ? " la alarma" : " el recordatorio") + " de " + (proximo.txt || "despertar") + "." : tratoInicio() + ", no hay nada pendiente por borrar.";
+  }
+
+  // CREAR (requiere hora/día; si falta, pregunta en vez de adivinar)
+  const cuando = parsearCuando(n);
+  let cuerpo = "";
+  if (!cuando) {
+    const tipo = esAlarma ? "alarma" : "recordatorio";
+    return tratoInicio() + ", ¿a qué hora le pongo el " + tipo + "? Diga por ejemplo: a las seis de la mañana.";
+  }
+  // extracción del contenido: quitar disparador, conectores y el trozo de tiempo
+  {
+    let base = n
+      .replace(/^(despiertame|despierta me|alarmame|alarma|ponme|pon me|pon una alarma|crea una alarma|una alarma|recuerdame|recuerda me|recuerdeme|recordar)\b/, "")
+      .replace(/\bsobre\b|\bacerca de\b/, " ").trim();
+    const trozosTiempo = /((en (una|media|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|quince|veinte|treinta|\d+)\s*(minutos?|horas?))|((pasado )?manana)|\bhoy\b|\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b|\ba las?\s+\d{1,2}(?:\s*[:.]\s*|\s+y\s+|\s+)?(\d{2}|media)?(?:\s*(?:de la\s+)?(manana|tarde|noche|madrugada|am|pm))?|al mediodia|\b(cada manana|todas las mananas|todos los dias|cada dia|diario)\b)/g;
+    cuerpo = base.replace(trozosTiempo, " ").replace(/\s+/g, " ").replace(/^(que|de|para|a)\s+/i, "").replace(/\s+(que|de|para|a|el|la|los|al)\s*$/i, "").trim();
+  }
+  const drv = esAlarma ? "alarma" : "recordatorio";
+  const r2 = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), tipo: drv, txt: cuerpo || (drv === "alarma" ? "" : ""), t: cuando.t, rep: cuando.rep, hecho: false };
+  recordatorios.push(r2); guardarRecordatorios();
+  const nombre = drv === "alarma" ? "Alarma" : "Recordatorio";
+  const conRep = r2.rep === "daily" ? ", se repite todas las mañanas" : "";
+  return tratoInicio() + (cuerpo ? ", " + nombre.toLowerCase() + " de " + cuerpo : ", " + nombre.toLowerCase() + " puesta") + " para " + descripcionCuando(r2.t) + conRep + ".";
+}
+
+/* Disparo: pitidos + notificación + tarjeta + voz. Revisa cada 15 s. */
+let ultimoDisparo = 0;
+function pitorrear(veces) {
+  try {
+    const ac = acPitidos || (acPitidos = new (window.AudioContext || window.webkitAudioContext)());
+    if (ac.state === "suspended") { try { ac.resume(); } catch (e) {} }
+    for (let i = 0; i < veces; i++) {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.connect(g); g.connect(ac.destination);
+      o.frequency.value = 880; o.type = "sine";
+      const t0 = ac.currentTime + i * 0.45;
+      g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.5, t0 + 0.03); g.gain.linearRampToValueAtTime(0, t0 + 0.3);
+      o.start(t0); o.stop(t0 + 0.32);
+    }
+  } catch (e) {}
+}
+let acPitidos = null;
+function checkRecordatorios() {
+  const ahora = Date.now();
+  let cambios = false;
+  for (const r2 of recordatorios) {
+    if (r2.hecho || r2.t > ahora) continue;
+    r2.hecho = true; cambios = true;
+    if (r2.rep === "daily") { r2.t += 864e5; r2.hecho = false; }
+    const atraso = Math.round((ahora - r2.t) / 60e3);
+    const cuerpo = r2.txt || (r2.tipo === "alarma" ? "Despierte, es su alarma." : "Su recordatorio.");
+    const mensaje = (r2.txt ? (r2.tipo === "alarma" ? "Alarma: " : "Recordatorio: ") : "") + cuerpo + (atraso >= 2 ? " Le aviso con " + atraso + " minutos de atraso." : "");
+    pitorrear(r2.tipo === "alarma" ? 3 : 1);
+    try {
+      if (window.Notification && Notification.permission === "granted") new Notification("VIERNES · " + (r2.tipo === "alarma" ? "ALARMA" : "RECORDATORIO"), { body: cuerpo || "Sonó su alarma." });
+    } catch (e) {}
+    notificarImportante("⏰ " + (r2.tipo === "alarma" ? "ALARMA" : "RECORDATORIO") + "\n" + (cuerpo || (atraso >= 2 ? "" : "Ahora mismo.")));
+    log(r2.tipo + " disparada: " + (cuerpo || "—"), "warn");
+    const miGen = ++hablarGen;
+    if (synth) { try { synth.cancel(); } catch (e) {} }
+    hablarLocal(tratoInicio() + ", " + mensaje);
+  }
+  if (cambios) guardarRecordatorios();
+}
+setInterval(checkRecordatorios, 15000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkRecordatorios(); });
+
+/* ==== AGENDA: Calendario de Google con el mismo OAuth del correo ====
+   «¿Qué tengo mañana?» → los eventos de ese día.
+   «Agregar reunión con el banco el viernes a las 10» → evento nuevo. */
+async function comandoAgenda(texto) {
+  const n = normalizar(texto);
+  const V = window.ViernesMail;
+  const conectado = !!(V && V.isConnected());
+  // ¿hablar de la agenda/calendario?
+  const preguntaAgenda = /\b(agenda|calendario|mis eventos|que tengo|que hay|mis citas|minutas|que sigue|schedule)\b/.test(n) &&
+    /\b(hoy|manana|pasado manana|semana|fin de semana|agenda|calendario|eventos|citas|actividades|dia)\b/.test(n);
+  const crearAgenda = /\b(agreg(?:a|ar)|anad(?:e|ir)|a[nñ]ad(?:e|ir)|cre(?:a|ar)|pon(?:me|)?|registra|programa)\b/.test(n) &&
+    /\b(evento|cita|reunion|junta|activ)\b/.test(n) && /\b(agenda|calendario)\b/.test(n);
+  if (!preguntaAgenda && !crearAgenda) return null;
+  if (!conectado) {
+    return tratoInicio() + ", el calendario usa la misma cuenta de Gmail. Conéctela en Ajustes → Correo y listo.";
+  }
+  // Rango temporal pedido
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  let desde = new Date(hoy), hasta = new Date(hoy), loc = "hoy";
+  let m2;
+  if ((m2 = n.match(/\bpasado manana\b/))) { desde = new Date(hoy.getTime() + 2 * 864e5); hasta = new Date(desde.getTime() + 864e5); loc = "pasado mañana"; }
+  else if ((m2 = n.match(/\bmanana\b/))) { desde = new Date(hoy.getTime() + 864e5); hasta = new Date(desde.getTime() + 864e5); loc = "mañana"; }
+  else if ((m2 = n.match(/\bfin de semana\b/))) {
+    const dia = (desde.getDay() + 6) % 7;
+    desde = new Date(hoy.getTime() + (5 - dia + 7) % 7 * 864e5);
+    hasta = new Date(desde.getTime() + 2 * 864e5); loc = "el fin de semana";
+  } else if ((m2 = n.match(/\besta semana\b|\ben la semana\b/))) { hasta = new Date(hoy.getTime() + 7 * 864e5); loc = "esta semana"; }
+  else if ((m2 = n.match(new RegExp("\\b(" + ["lunes","martes","miercoles","jueves","viernes","sabado","domingo"].join("|") + ")\\b")))) {
+    const destino = ["lunes","martes","miercoles","jueves","viernes","sabado","domingo"].indexOf(m2[1]);
+    let delta = (destino - ((hoy.getDay() + 6) % 7) + 7) % 7; if (delta === 0) delta = 7;
+    desde = new Date(hoy.getTime() + delta * 864e5); hasta = new Date(desde.getTime() + 864e5); loc = "el " + m2[1];
+  } else { hasta = new Date(hoy.getTime() + 864e5); loc = "hoy"; }
+
+  // CREAR EVENTO
+  if (crearAgenda) {
+    const cuando = parsearCuando(n);
+    if (!cuando) return tratoInicio() + ", ¿cuándo lo pongo? Diga por ejemplo: el viernes a las diez de la mañana.";
+    // Título: la frase menos disparadores y la parte del tiempo
+    let titulo = texto.trim()
+      .replace(/^(agrega(?:r)?|anade(?:r)?|añade(?:r)?|crea(?:r)?|pon(?:me)?|registra(?:r)?|programa(?:r)?)\s+/i, "")
+      .replace(/\b(en|a|al)\s+(mi\s+)?(agenda|calendario)\b/i, "")
+      .replace(/\b(evento|cita|reunion|junta)\b/i, "")
+      .replace(/\s*·?\s*(de|el|para|a partir de)\s*/i, " ")
+      .trim();
+    if (!titulo) titulo = "Evento";
+    try {
+      const ev = await V.calendarioCrear({ titulo: titulo, inicio: new Date(cuando.t), fin: new Date(cuando.t + 36e5) });
+      log("Evento creado: " + ev.id, "ok");
+      // Recordatorio local 10 minutos antes (sirve con la página abierta)
+      recordatorios.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), tipo: "recordatorio", txt: "Evento: " + titulo, t: cuando.t - 10 * 60e3, hecho: false });
+      guardarRecordatorios();
+      return tratoInicio() + ", evento «" + titulo + "» agendado para " + descripcionCuando(cuando.t) + ", con aviso 10 minutos antes.";
+    } catch (e) {
+      if (/403/.test(e.message) || /insufficient/i.test(e.message)) {
+        return tratoInicio() + ", Google pide autorizar el calendario: desconecte y vuelva a conectar el correo en Ajustes, un paso único.";
+      }
+      return tratoInicio() + ", no pude crear el evento: " + e.message.charAt(0).toLowerCase() + e.message.slice(1);
+    }
+  }
+
+  // LISTAR EVENTOS
+  try {
+    const evs = await V.calendarioListar(desde.toISOString(), hasta.toISOString());
+    if (!evs.length) return tratoInicio() + ", no tiene nada agendado " + loc + ".";
+    const lista = evs.slice(0, 8).map((e2) => {
+      const h = e2.todoElDia ? "todo el día" : e2.inicio.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+      return e2.titulo + " a " + h;
+    });
+    const resp1 = tratoInicio() + ", " + loc + " tiene " + evs.length + (evs.length === 1 ? " evento: " : " eventos: ") + lista.join(", ") + ".";
+    return resp1;
+  } catch (e) {
+    if (/403/.test(e.message) || /insufficient/i.test(e.message)) {
+      return tratoInicio() + ", Google pide permiso del calendario otra vez: desconecte y reconecte el correo en Ajustes.";
+    }
+    return tratoInicio() + ", no pude leer la agenda: " + e.message.charAt(0).toLowerCase() + e.message.slice(1);
+  }
+}
+
 /* ==== CORREO (Gmail) ==== */
 let correosActuales = [];        // lista clasificada de correos sin leer
 let correoSeleccionado = null;   // correo abierto/leído
@@ -994,6 +1236,9 @@ async function enviarTexto(texto) {
     if (!contextoImagen) resp = comandoLocal(texto);
     // Memoria: apuntar, leer notas, borrar, sincronizar bitácora
     if (!resp && !contextoImagen) { try { resp = await comandoNota(texto); } catch (e) { log("Notas: " + e.message, "error"); } }
+    // Agenda del calendario y recordatorios/alarmas por voz
+    if (!resp && !contextoImagen) { try { resp = await comandoAgenda(texto); } catch (e) { log("Agenda: " + e.message, "warn"); } }
+    if (!resp && !contextoImagen) { try { resp = await comandoRecordatorio(texto); } catch (e) { log("Recordatorios: " + e.message, "warn"); } }
     // Correo (Gmail): leer, priorizar, redactar y enviar
     if (!resp && !contextoImagen) { try { resp = await comandoCorreo(texto); } catch (e) { resp = tratoInicio() + ", " + e.message; } }
     // Clima en vivo (Open-Meteo)
