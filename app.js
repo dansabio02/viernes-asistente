@@ -670,6 +670,34 @@ async function sincronizarBitacora(silencioso) {
   } catch (e) { log("Bitácora: " + e.message, "warn"); }
 }
 
+/* ==== Cola /pend: recordatorios creados por el atajo (Android) ====
+   El worker los guarda en la cola cuando se crean sin abrir la página.
+   Al abrir VIERNES (o cada 5 minutos con la página viva) se descargan,
+   se vacía la cola del servidor y entran al motor local de alarmas. */
+async function sincronizarPendientes(silencioso) {
+  if (!pinNotas) return;
+  try {
+    const r = await fetch(apiMemoria("/pend"));
+    if (!r.ok) return;
+    const j = await r.json();
+    const items = (j && j.items) || [];
+    if (!items.length) return;
+    let n = 0;
+    for (const it of items) {
+      if (!it || !it.t) continue;
+      // Si el evento venció mientras la app estaba cerrada y es puntual, se avisa igualmente por bitácora; aquí solo vivos
+      if (!it.rep && it.t < Date.now()) continue;
+      recordatorios.push({ id: it.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 5)), tipo: it.tipo === "alarma" ? "alarma" : "recordatorio", txt: it.txt || "", t: it.t, rep: it.rep || null, hecho: false });
+      n++;
+    }
+    if (n) {
+      guardarRecordatorios();
+      log("Atajo: " + n + " recordatorio(s) recibido(s) del servidor", "ok");
+      if (!silencioso) notificarImportante("⏰ Desde el atajo: " + n + (n === 1 ? " recordatorio nuevo." : " recordatorios nuevos."));
+    }
+  } catch (e) { log("Atajo pendientes: " + e.message, "warn"); }
+}
+
 /* ==== COMANDOS DE MEMORIA POR VOZ ====
    «Apunta…» / «toma nota de…» / «recuerda que…» → se guarda en el servidor.
    «Lee mis notas» / «qué apuntaste» → las enumera.
@@ -1633,6 +1661,9 @@ function init() {
   // Memoria del servidor: subir notas pendientes y leer la bitácora de su ausencia
   if (pinNotas) { subirColaNotas().then((n) => { if (n) log("Notas pendientes subidas: " + n, "ok"); }); }
   setTimeout(() => sincronizarBitacora(false), 2500); // deja respirar el arranque
+  // recordatorios hechos por el atajo (sin abrir la app) entran al motor local
+  setTimeout(() => sincronizarPendientes(false), 4000);
+  setInterval(() => sincronizarPendientes(true), 5 * 60 * 1000);
   // La clave vive en el Worker de Cloudflare: no se requiere onboarding.
   document.body.setAttribute("data-ready","true");
   iniciarReconocimiento(); // calienta el permiso (no arranca)

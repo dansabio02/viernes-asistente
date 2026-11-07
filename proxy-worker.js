@@ -24,29 +24,98 @@
 //   POST /note   {texto}&pin → guardar una nota
 //   GET  /notes  ?pin        → listar las últimas notas
 //   GET  /note?id=…&pin      → borrar una nota
-//   GET  /ask?texto=…&pin    → preguntar a VIERNES SIN ABRIR LA PÁGINA
-//        (ideal para atajos de Android/iOS, Tasker, AutoVoice…). Devuelve la
-//        respuesta; con &raw=1 devuelve solo texto plano para que el atajo
-//        lo lea en voz alta. Cada pregunta y respuesta queda en la bitácora.
+//   GET  /ask?texto=…&pin=&tz=-6  → preguntar a VIERNES SIN ABRIR LA PÁGINA
+//        (atiende MANOS: «apunta …» nota, «recuérdame … a las …» recordatorio,
+//        «despiértame …» alarma, «mis notas», «mis recordatorios»; lo demás va
+//        al LLM). Devuelve la respuesta; con &raw=1 solo texto plano para que
+//        el atajo lo lea en voz alta. tz = desfase UTC del jefe (por defecto -6).
+//   GET  /pend?pin=   → descarga y VACÍA la cola de recordatorios creados
+//        por atajo (los recoge la app al abrir). Cada movimiento queda en bitácora.
 //   GET  /log?pin=&desde=…   → bitácora (apunta todo lo ocurrido fuera de casa)
 
 const TRATOS = ["Señor", "Señor Daniel", "Jefe"];
+const DIAS = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"]; // para mostrar (domingo=0)
+const DIASEM = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]; // para sumar días (lunes=0)
+
+/* ── TIEMPO NATURAL REMOTO: espejo del parser local de la app ──
+   «off» es el desfase UTC del jefe en ms (CDMX: -6 h → 21600e3 en negativo).
+   Las horas se calculan en reloj de pared del jefe con aritmética UTC. */
+function offMs(url) {
+  const tz = parseFloat((url.searchParams.get("tz") || "").trim());
+  const tzH = isFinite(tz) && tz >= -13 && tz <= 13 ? tz : -6; // CDMX por defecto
+  return Math.round(tzH * 3600e3);
+}
+function parsearTiempoRemoto(pn, off) {
+  const ahora = Date.now();
+  const base = new Date(ahora + off); // los campos UTC reflejan el reloj del jefe
+  base.setUTCSeconds(0, 0);
+  let m;
+  // Relativo: no depende de la zona
+  if ((m = pn.match(/\ben (media) hora\b/))) return { t: ahora + 30 * 60e3, rep: null };
+  if ((m = pn.match(/\ben\s+(una|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|quince|veinte|treinta|\d+)\s+(minutos?|horas?)\b/))) {
+    const mapa = { una: 1, un: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, quince: 15, veinte: 20, treinta: 30 };
+    const cant = mapa[m[1]] !== undefined ? mapa[m[1]] : parseInt(m[1]);
+    const mins = /minut/.test(m[2]) ? cant : cant * 60;
+    return { t: ahora + mins * 60e3, rep: null };
+  }
+  // Día base
+  let deltaDias = 0, quiereTodoElDia = false;
+  if ((m = pn.match(/\bpasado manana\b/))) { deltaDias = 2; }
+  else if ((m = pn.match(/\bmanana\b/))) { deltaDias = 1; }
+  else if ((m = pn.match(/\bhoy\b/))) { quiereTodoElDia = true; }
+  else if ((m = pn.match(new RegExp("\\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\\b")))) {
+    const destino = DIASEM.indexOf(m[1]);
+    let delta = (destino - ((base.getUTCDay() + 6) % 7) + 7) % 7;
+    if (delta === 0) delta = 7; // "el viernes" en viernes → el próximo
+    deltaDias = delta;
+  }
+  const rep = /\b(cada manana|todas las mananas|todos los dias|cada dia|diario)\b/.test(pn) ? "daily" : null;
+  let t = null;
+  if ((m = pn.match(/\ba las?\s+(\d{1,2})(?:\s*[:.]\s*|\s+y\s+|\s+)?(\d{2}|media)?(?:\s*(?:de la\s+)?(manana|tarde|noche|madrugada|am|pm))?\b/))) {
+    let hh = parseInt(m[1]);
+    const mmRaw = m[2] || "";
+    const mm = mmRaw === "media" ? 30 : parseInt(mmRaw || 0);
+    const marc = m[3] || "";
+    if (marc === "pm" || marc === "tarde" || marc === "noche") { if (hh < 12) hh += 12; }
+    const d = new Date(base.getTime() + deltaDias * 864e5);
+    d.setUTCHours(hh, mm, 0, 0);
+    t = d.getTime() - off;
+    if (!deltaDias && !quiereTodoElDia && t <= ahora - 60e3) t += 864e5; // ya pasó hoy: mañana
+  } else if (deltaDias || quiereTodoElDia || /\bmediodia\b/.test(pn)) {
+    // Sin hora expresa: mediodía si se pide, si no 8 de la mañana (igual que la app)
+    const d = new Date(base.getTime() + deltaDias * 864e5);
+    if (/\bmediodia\b/.test(pn)) d.setUTCHours(12, 0, 0, 0); else d.setUTCHours(8, 0, 0, 0);
+    t = d.getTime() - off;
+  }
+  if (!t) return null;
+  return { t, rep };
+}
+function describeRemoto(t, off) {
+  const diaPos = new Date(t + off);
+  const hora = ("0" + diaPos.getUTCHours()).slice(-2) + ":" + ("0" + diaPos.getUTCMinutes()).slice(-2);
+  const diaD0 = new Date(diaPos.getTime()); diaD0.setUTCHours(0, 0, 0, 0);
+  const hoyD0 = new Date(Date.now() + off); hoyD0.setUTCHours(0, 0, 0, 0);
+  const dif = Math.round((diaD0.getTime() - hoyD0.getTime()) / 864e5);
+  const diaTxt = dif === 0 ? "hoy" : dif === 1 ? "mañana" : DIAS[diaPos.getUTCDay()];
+  return diaTxt + " a las " + hora;
+}
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const kv = (env && env.VIERNES_KV) || null;
-    const memoria = (globalThis.__viernesMem = globalThis.__viernesMem || { notas: [], bitacora: [] });
+    const memoria = (globalThis.__viernesMem = globalThis.__viernesMem || { notas: [], bitacora: [], pend: [] });
 
     // ── MEMORIA: lecto-escritura en KV (fallback en RAM si no hay binding) ──
-    const K = { notas: "viernes:notas", bit: "viernes:bitacora" };
+    const K = { notas: "viernes:notas", bit: "viernes:bitacora", pend: "viernes:pend" };
+    const KRAM = { [K.notas]: "notas", [K.bit]: "bitacora", [K.pend]: "pend" };
     async function leerClave(k, def) {
       if (kv) { try { const v = await kv.get(k); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
-      return memoria[k === K.notas ? "notas" : "bitacora"] || def;
+      return memoria[KRAM[k]] || def;
     }
     async function guardarClave(k, val) {
       if (kv) { try { await kv.put(k, JSON.stringify(val)); return; } catch (e) {} }
-      if (k === K.notas) memoria.notas = val; else memoria.bitacora = val;
+      memoria[KRAM[k]] = val;
     }
     async function bitacoraAdd(tipo, txt) {
       const b = await leerClave(K.bit, []);
@@ -103,6 +172,16 @@ export default {
       return respuesta({ ok: true, notas }, request.headers.get("Origin") || "*");
     }
 
+    // ── PEND: cola de recordatorios/alarmas creados por atajo. La app los
+    //      descarga al abrir (GET consume y vacía la cola). ──
+    if (url.pathname === "/pend" && request.method === "GET") {
+      if (!pinSrv) return respuesta({ error: "Configure VIERNES_PIN en el worker" }, "*", 500);
+      if (pedir(url, request) !== pinSrv) return respuesta({ error: "PIN incorrecto" }, "*", 403);
+      const pend = await leerClave(K.pend, []);
+      await guardarClave(K.pend, []);
+      return respuesta({ ok: true, items: pend }, request.headers.get("Origin") || "*");
+    }
+
     // ── ASK: VIERNES responde SIN que abras la página (atajos, Tasker, Shortcuts) ──
     if (url.pathname === "/ask") {
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(request.headers.get("Origin") || "*", true) });
@@ -110,9 +189,65 @@ export default {
       if (pedir(url, request) !== pinSrv) return respuesta({ error: "PIN incorrecto" }, "*", 403);
       const pregunta = url.searchParams.get("texto") || "";
       if (!pregunta) return respuesta({ error: "Falta texto" }, "*", 400);
+
+      /* ── MANOS DE VIERNES: intenciones que se resuelven sin modelo ── */
+      const off = offMs(url);
+      const pn = pregunta.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+      const bLen = (await leerClave(K.bit, [])).length;
+      const tratoP = TRATOS[bLen % TRATOS.length];
+      const limpia = (t2) => tratoP + ", " + t2.charAt(0).toLowerCase() + t2.slice(1);
+
+      // APUNTAR nota
+      if (/^(apunta|apuntame|apuntar|anota|anotar|toma nota|recuerda que)\b/.test(pn)) {
+        const txt = pregunta.replace(/^(?:ap[uú]ntame|apuntas?|anotas?|toma nota(?: de)?|recuerda(?: que)?)\s*[:,]?\s*/i, "").replace(/^que\s+/i, "").trim();
+        if (txt.length > 2) {
+          const notas = await leerClave(K.notas, []);
+          const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+          notas.unshift({ id, t: Date.now(), txt: txt.slice(0, 500) });
+          await guardarClave(K.notas, notas.slice(0, 100));
+          await bitacoraAdd("nota", txt);
+          return respuesta({ ok: true, respuesta: limpia("anotado: " + txt + ".") }, request.headers.get("Origin") || "*");
+        }
+      }
+      // LEER notas
+      if (/\b(mis notas|mis apuntes|que notas|dame mis notas|leeme las notas|leer las notas|listame las notas|lista las notas)\b/.test(pn) || /^(mis notas|notas)/.test(pn)) {
+        const notas = await leerClave(K.notas, []);
+        if (!notas.length) return respuesta({ ok: true, respuesta: limpia("no tiene notas guardadas todavía.") }, request.headers.get("Origin") || "*");
+        const txt = notas.slice(0, 8).map((x, i) => (i + 1) + ": " + x.txt).join(". ");
+        return respuesta({ ok: true, respuesta: limpia("sus notas recientes: " + txt) }, request.headers.get("Origin") || "*");
+      }
+      // RECORDATORIO o ALARMA por atajo (solo si hay tiempo expreso en la frase)
+      if (/(recuerdame|despiertame|alarmame|alarma|recordatorio)/.test(pn)) {
+        const p2 = parsearTiempoRemoto(pn, off);
+        if (p2) {
+          const tipo = /(despiertame|alarmame)\b|alarma/.test(pn) ? "alarma" : "recordatorio";
+          let txt = pregunta.trim()
+            .replace(/^(?:despi[eé]rtame|despierta me|alarmame|ponme una alarma|pon una alarma|una alarma|alarma|recu[eé]rd(?:ame|a me)|recuerdeme|recordatorios?|recordar)\b[).:,]?\s*/i, "")
+            .replace(/^que\s+/i, "")
+            .replace(/\bcada\s+(manana|mañana|dia|día|todas las mananas|todos los dias)\b/i, "")
+            .replace(/\ba las?\s*\d{1,2}(?:[:.]\s*\d{2}|\s+y\s+media|\s+\d{2})?(?:\s*de la\s*)?(?:manana|mañana|madrugada|tarde|noche|am|pm)?\b/i, "")
+            .replace(/\bal mediod[ií]a\b|\ben media hora\b|\ben\s+(un|una|\d+)\s+cuart[oa]s? de hora\b|\ben\s+\d+\s+(minutos?|horas?)\b/i, "")
+            .replace(/\b((pasado )?mañana|mañana|hoy|lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|domingo)\b/i, "")
+            .replace(/\s+/g, " ").replace(/^[,;:.]\s*/, "").replace(/^(el|la|los|las|que|de|para|a|al)\s+/i, "").replace(/\s+(el|la|los|las|de|para|a)$/i, "").trim();
+          const pend = await leerClave(K.pend, []);
+          const item = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), tipo, txt, t: p2.t, rep: p2.rep };
+          pend.push(item);
+          await guardarClave(K.pend, pend.slice(-40));
+          await bitacoraAdd("recordatorio", tipo + ": " + (txt || "—") + " → " + describeRemoto(p2.t, off));
+          return respuesta({ ok: true, respuesta: limpia((tipo === "alarma" ? "alarma puesta" : "recordatorio de " + (txt || "su aviso")) + " para " + describeRemoto(p2.t, off) + (p2.rep === "daily" ? ", se repite todas las mañanas" : "") + ". Sonará cuando abra Viernes.") }, request.headers.get("Origin") || "*");
+        }
+      }
+      // LISTAR pendientes
+      if (/\b(mis recordatorios|mis alarmas|que recordatorios tengo|que alarmas tengo|listame los pendientes|pendientes)\b/.test(pn)) {
+        const pend = (await leerClave(K.pend, [])).filter((x) => !x.hecho);
+        if (!pend.length) return respuesta({ ok: true, respuesta: limpia("no hay recordatorios ni alarmas pendientes.") }, request.headers.get("Origin") || "*");
+        const texto = pend.slice(0, 8).map((x, i) => (i + 1) + " " + (x.tipo === "alarma" ? "alarma" : "recordatorio") + (x.txt ? " de " + x.txt : "") + " " + describeRemoto(x.t, off)).join(". ");
+        return respuesta({ ok: true, respuesta: limpia("pendiente" + (pend.length === 1 ? "" : "s") + ": " + texto) }, request.headers.get("Origin") || "*");
+      }
+
+      // Contexto: últimas notas + últimos intercambios, para que "recuerde"
       const key = ((env && env.GROQ_API_KEY) || (request.env && request.env.GROQ_API_KEY)) || "";
       if (!key) return respuesta({ error: "Falta GROQ_API_KEY" }, "*", 500);
-      // Contexto: últimas notas + últimos intercambios, para que "recuerde"
       const notas = (await leerClave(K.notas, [])).slice(0, 10);
       const bit = (await leerClave(K.bit, [])).slice(-10);
       const ctxNotas = notas.length ? "NOTAS RECIENTES DEL JEFE:\n" + notas.map((n) => "- " + n.txt).join("\n") : "";
