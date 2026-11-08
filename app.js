@@ -11,7 +11,7 @@ const DEFAULTS = {
   userName: "Señor Daniel", altName: "Jefe", wakeWords: "viernes",
   language: "es-MX", followUp: 12, handsFree: true, autoStartMic: false,
   cameraDevice: "", imageDetail: "auto", maxImage: "1280", autoAttach: false, mirror: false, memory: true,
-  passLock: false, passphrase: "papá llegó", passTimeout: 10
+  passLock: false, passphrase: "papá llegó", passTimeout: 10, outlookPrimero: false
 };
 let passUnlocked = false;
 let passUnlockTime = 0;
@@ -1125,10 +1125,20 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) chec
 /* ==== AGENDA: Calendario de Google con el mismo OAuth del correo ====
    «¿Qué tengo mañana?» → los eventos de ese día.
    «Agregar reunión con el banco el viernes a las 10» → evento nuevo. */
+/* ==== AVANZADO: selector de correo/calendario ====
+   Gmail y Outlook exponen la MISMA interfaz. Elige el conectado
+   (con preferencia del jefe cuando ambos lo están). */
+function correoProveedor() {
+  const g = window.ViernesMail, o = window.ViernesOutlook;
+  const orden = cfg.outlookPrimero ? [o, g] : [g, o];
+  for (const p of orden) { if (p && p.isConnected()) return p; }
+  return null;
+}
+
 async function comandoAgenda(texto) {
   const n = normalizar(texto);
-  const V = window.ViernesMail;
-  const conectado = !!(V && V.isConnected());
+  const g = window.ViernesMail, o = window.ViernesOutlook;
+  const conectado = !!(g && g.isConnected()) || !!(o && o.isConnected());
   // ¿hablar de la agenda/calendario?
   const preguntaAgenda = /\b(agenda|calendario|mis eventos|que tengo|que hay|mis citas|minutas|que sigue|schedule)\b/.test(n) &&
     /\b(hoy|manana|pasado manana|semana|fin de semana|agenda|calendario|eventos|citas|actividades|dia)\b/.test(n);
@@ -1136,7 +1146,7 @@ async function comandoAgenda(texto) {
     /\b(evento|cita|reunion|junta|activ)\b/.test(n) && /\b(agenda|calendario)\b/.test(n);
   if (!preguntaAgenda && !crearAgenda) return null;
   if (!conectado) {
-    return tratoInicio() + ", el calendario usa la misma cuenta de Gmail. Conéctela en Ajustes → Correo y listo.";
+    return tratoInicio() + ", el calendario usa su cuenta de Gmail o Outlook. Conéctela en Ajustes → Correo y listo.";
   }
   // Rango temporal pedido
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
@@ -1168,15 +1178,16 @@ async function comandoAgenda(texto) {
       .trim();
     if (!titulo) titulo = "Evento";
     try {
-      const ev = await V.calendarioCrear({ titulo: titulo, inicio: new Date(cuando.t), fin: new Date(cuando.t + 36e5) });
-      log("Evento creado: " + ev.id, "ok");
+      const destino = correoProveedor(); // Gmail u Outlook: el conectado
+      const ev = await destino.calendarioCrear({ titulo: titulo, inicio: new Date(cuando.t), fin: new Date(cuando.t + 36e5) });
+      log("Evento creado (" + (destino === window.ViernesOutlook ? "Outlook" : "Google") + "): " + ev.id, "ok");
       // Recordatorio local 10 minutos antes (sirve con la página abierta)
       recordatorios.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), tipo: "recordatorio", txt: "Evento: " + titulo, t: cuando.t - 10 * 60e3, hecho: false });
       guardarRecordatorios();
       return tratoInicio() + ", evento «" + titulo + "» agendado para " + descripcionCuando(cuando.t) + ", con aviso 10 minutos antes.";
     } catch (e) {
-      if (/403/.test(e.message) || /insufficient/i.test(e.message)) {
-        return tratoInicio() + ", Google pide autorizar el calendario: desconecte y vuelva a conectar el correo en Ajustes, un paso único.";
+      if (/403/.test(e.message) || /insufficient|401/.test(e.message)) {
+        return tratoInicio() + ", su cuenta pide autorizar el calendario: desconecte y vuelva a conectar el correo en Ajustes, un paso único.";
       }
       return tratoInicio() + ", no pude crear el evento: " + e.message.charAt(0).toLowerCase() + e.message.slice(1);
     }
@@ -1184,7 +1195,8 @@ async function comandoAgenda(texto) {
 
   // LISTAR EVENTOS
   try {
-    const evs = await V.calendarioListar(desde.toISOString(), hasta.toISOString());
+    const prov = correoProveedor();
+    const evs = await prov.calendarioListar(desde.toISOString(), hasta.toISOString());
     if (!evs.length) return tratoInicio() + ", no tiene nada agendado " + loc + ".";
     const lista = evs.slice(0, 8).map((e2) => {
       const h = e2.todoElDia ? "todo el día" : e2.inicio.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
@@ -1193,8 +1205,8 @@ async function comandoAgenda(texto) {
     const resp1 = tratoInicio() + ", " + loc + " tiene " + evs.length + (evs.length === 1 ? " evento: " : " eventos: ") + lista.join(", ") + ".";
     return resp1;
   } catch (e) {
-    if (/403/.test(e.message) || /insufficient/i.test(e.message)) {
-      return tratoInicio() + ", Google pide permiso del calendario otra vez: desconecte y reconecte el correo en Ajustes.";
+    if (/403/.test(e.message) || /insufficient|401/.test(e.message)) {
+      return tratoInicio() + ", su cuenta pide permiso del calendario otra vez: desconecte y reconecte el correo en Ajustes.";
     }
     return tratoInicio() + ", no pude leer la agenda: " + e.message.charAt(0).toLowerCase() + e.message.slice(1);
   }
@@ -1223,15 +1235,16 @@ function esComandoCorreo(texto) {
 }
 
 async function comandoCorreo(texto) {
-  const V = window.ViernesMail;
-  if (!V || !esComandoCorreo(texto)) return null;
+  if (!esComandoCorreo(texto)) return null;
+  const V = correoProveedor(); // Gmail u Outlook: el conectado
+  if (!V) return tratoInicio() + ", aún no tiene el correo conectado. Conéctelo en Ajustes → Correo (Gmail u Outlook).";
   const n = normalizar(texto);
   // "enviar/guardar" solo aplican si hay un borrador pendiente; si no, dejar pasar a Groq.
   // Solo verbos claros de acción: "si", "ok", "claro" solos podían secuestrar frases ajenas.
   const esEnviar = /(^|\s)(envia|enviar|envialo|enviala|mandalo|mandala)(\s|$)/.test(n) && borradorActual;
   const esGuardar = /guarda borrador|guardar borrador/.test(n) && borradorActual;
   if (!V.isConnected()) {
-    return tratoInicio() + ", aún no tiene el correo conectado. Abra Ajustes, pestaña Correo, y toque Conectar Gmail.";
+    return tratoInicio() + ", aún no tiene el correo conectado. Conéctelo en Ajustes → Correo (Gmail u Outlook).";
   }
   if (esEnviar) return await enviarBorrador();
   if (esGuardar) return await guardarBorrador();
@@ -1257,7 +1270,7 @@ async function clasificarCorreos(metas) {
 }
 
 async function obtenerCorreos() {
-  const V = window.ViernesMail;
+  const V = correoProveedor();
   const ids = await V.listUnread(12);
   if (!ids.length) { correosActuales = []; renderMailList([]); return []; }
   const metas = [];
@@ -1272,7 +1285,6 @@ async function obtenerCorreos() {
 }
 
 async function revisarCorreo() {
-  const V = window.ViernesMail;
   const lista = await obtenerCorreos();
   abrirModal("mailModal");
   if (!lista.length) return tratoInicio() + ", no tiene correos sin leer. Su bandeja está al día.";
@@ -1296,7 +1308,7 @@ async function resumenCorreo() {
 }
 
 async function leerCorreo(texto) {
-  const V = window.ViernesMail;
+  const V = correoProveedor();
   if (!correosActuales.length) return tratoInicio() + ", primero revise su correo. Diga 'Viernes, revisa mi correo'.";
   const n = normalizar(texto);
   const num = n.match(/(?:numero|numero|correo)\s*(\d+)/);
@@ -1334,7 +1346,7 @@ async function redactarRespuesta() {
 }
 
 async function enviarBorrador() {
-  const V = window.ViernesMail;
+  const V = correoProveedor();
   if (!borradorActual) return tratoInicio() + ", no hay ninguna respuesta pendiente. Diga 'responde el correo' primero.";
   const b = borradorActual;
   await V.sendMail(b.to, b.subject, b.body);
@@ -1345,10 +1357,10 @@ async function enviarBorrador() {
 }
 
 async function guardarBorrador() {
-  const V = window.ViernesMail;
+  const V = correoProveedor();
   if (!borradorActual) return tratoInicio() + ", no hay ninguna respuesta pendiente.";
   await V.createDraft(borradorActual.to, borradorActual.subject, borradorActual.body);
-  return tratoInicio() + ", guardé el borrador en Gmail para que lo revise cuando quiera.";
+  return tratoInicio() + ", guardé el borrador en su bandeja para que lo revise cuando quiera.";
 }
 
 /* ── render de la bandeja ── */
@@ -1370,7 +1382,7 @@ function renderMailList(lista) {
 }
 
 async function abrirCorreoIndice(i) {
-  const V = window.ViernesMail;
+  const V = correoProveedor();
   const meta = correosActuales[i]; if (!meta) return;
   const full = await V.getMessage(meta.id);
   correoSeleccionado = full;
@@ -1419,8 +1431,16 @@ function actualizarMailEstado() {
   const st = $("gmailStatus"), sub = $("mailSub"), dis = $("btnDisconnectGmail");
   const conectado = V.isConnected();
   if (st) st.textContent = conectado ? "Estado: conectado como " + V.getMe() + "." : "Estado: sin conectar.";
-  if (sub) sub.textContent = conectado ? ("Conectado: " + V.getMe()) : "Sin conectar";
   if (dis) dis.hidden = !conectado;
+  const O = window.ViernesOutlook;
+  if (O) {
+    const so = $("outlookStatus"), dio = $("btnDisconnectOutlook");
+    const oc = O.isConnected();
+    if (so) so.textContent = oc ? "Estado: conectado como " + O.getMe() + "." : "Estado: sin conectar.";
+    if (dio) dio.hidden = !oc;
+    // el rótulo del subcorreo del panel unifica ambas cuentas
+    if (sub) sub.textContent = oc || conectado ? ("Conectado: " + (conectado ? V.getMe() : "") + (conectado && oc ? " · " : "") + (oc ? O.getMe() : "")) : "Sin conectar";
+  } else if (sub) sub.textContent = conectado ? ("Conectado: " + V.getMe()) : "Sin conectar";
 }
 
 async function initMailUI() {
@@ -1447,6 +1467,29 @@ async function initMailUI() {
     if (ok) { actualizarMailEstado(); toast("Correo conectado correctamente."); log("Gmail conectado", "ok"); }
   } catch (e) { log("Gmail: " + e.message, "error"); toast("Gmail: " + e.message); }
   actualizarMailEstado();
+}
+
+/* Outlook: misma pieza (Client ID de Microsoft, conexión y estado) */
+async function initOutlookUI() {
+  const O = window.ViernesOutlook; if (!O) return;
+  const cid = $("setOutlookClientId");
+  if (cid) { cid.value = O.getClientId(); cid.addEventListener("change", () => O.setClientId(cid.value)); }
+  const redir = $("outlookRedirect"); if (redir) redir.textContent = O.getRedirectUri();
+  const cb = $("setOutlookPrimero");
+  if (cb) { cb.checked = !!cfg.outlookPrimero; cb.addEventListener("change", () => { cfg.outlookPrimero = cb.checked; save(); }); }
+  const conn = $("btnConnectOutlook");
+  if (conn) conn.addEventListener("click", async () => {
+    if (cid) O.setClientId(cid.value);
+    if (!O.getClientId()) { toast("Pegue primero el Client ID de Microsoft."); return; }
+    try { await O.authorize(); } catch (e) { toast("Error: " + e.message); log(e.message, "error"); }
+  });
+  const dis = $("btnDisconnectOutlook");
+  if (dis) dis.addEventListener("click", async () => { await O.disconnect(); actualizarMailEstado(); toast("Outlook desconectado."); });
+  // procesar callback OAuth si volvemos de Microsoft
+  try {
+    const ok = await O.handleCallback();
+    if (ok) { actualizarMailEstado(); toast("Outlook conectado correctamente."); log("Outlook conectado", "ok"); }
+  } catch (e) { log("Outlook: " + e.message, "error"); toast("Outlook: " + e.message); }
 }
 
 /* ==== Aviso IMPORTANTE en pantalla (lo demás solo se escucha) ==== */
@@ -1874,7 +1917,7 @@ function init() {
   } catch (e) {}
   try { historial = JSON.parse(localStorage.getItem("viernes_hist") || "[]"); } catch (e) {}
   starfield(); brainNetwork(); actualizarReloj(); setInterval(actualizarReloj, 1000);
-  aplicarUI(); bindAjustes(); initEagleUI(); initMailUI();
+  aplicarUI(); bindAjustes(); initEagleUI(); initMailUI(); initOutlookUI();
   // Memoria del servidor: subir notas pendientes y leer la bitácora de su ausencia
   if (pinNotas) { subirColaNotas().then((n) => { if (n) log("Notas pendientes subidas: " + n, "ok"); }); }
   setTimeout(() => sincronizarBitacora(false), 2500); // deja respirar el arranque
