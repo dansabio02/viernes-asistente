@@ -1621,56 +1621,24 @@ function starfield() {
   resize(); draw(); addEventListener("resize", resize);
 }
 
-// CEREBRO neuronal: silueta anatómica (dos hemisferios + hendidura + cerebelo)
-// rellena de neuronas conectadas por sinapsis con pulsos viajeros.
+// REACTOR: visual tipo reactor de arco de Iron Man — núcleo incandescente que
+// late, carcasa giratoria de 10 bobinas radiales (la firma del reactor),
+// anillo exterior segmentado que rota, anillo de marcas finas contrarrotante
+// y chispas de energía viajeras por sus carriles.
 // Estado: cian en escucha, ámbar al responder, tenue en reposo.
 function brainNetwork() {
   const cv = $("brainCanvas"); if (!cv) return;
   const ctx = cv.getContext("2d"); const W = cv.width, H = cv.height;
   const miGen = ++brainGen; // detiene cualquier bucle anterior sobre el mismo lienzo
   const cx = W / 2, cy = H / 2;
-  const BW = W * 0.37, BH = H * 0.40; // radios del cerebro
-
-  // Silueta: PERFIL LATERAL del cerebro (lóbulo frontal, surco lateral,
-  // cerebelo y tronco encefálico). Las neuronas nacen solo dentro de ella.
-  const silueta = new Path2D();
-  silueta.moveTo(cx + BW * 0.10, cy - BH * 0.98);                                  // vértice superior
-  silueta.bezierCurveTo(cx + BW * 0.70, cy - BH * 0.95, cx + BW * 1.05, cy - BH * 0.50, cx + BW * 1.02, cy - BH * 0.05); // frente
-  silueta.bezierCurveTo(cx + BW * 0.98, cy + BH * 0.28, cx + BW * 0.72, cy + BH * 0.40, cx + BW * 0.55, cy + BH * 0.42); // sien / surco lateral
-  silueta.bezierCurveTo(cx + BW * 0.42, cy + BH * 0.55, cx + BW * 0.34, cy + BH * 0.62, cx + BW * 0.20, cy + BH * 0.66); // base frontal
-  silueta.bezierCurveTo(cx + BW * 0.10, cy + BH * 0.88, cx + BW * 0.04, cy + BH * 0.98, cx - BW * 0.02, cy + BH * 1.06); // tronco encefálico
-  silueta.bezierCurveTo(cx - BW * 0.07, cy + BH * 0.97, cx - BW * 0.10, cy + BH * 0.92, cx - BW * 0.14, cy + BH * 0.90); // vuelta del tallo
-  silueta.bezierCurveTo(cx - BW * 0.10, cy + BH * 0.80, cx - BW * 0.12, cy + BH * 0.72, cx - BW * 0.22, cy + BH * 0.76); // cerebelo (bulto)
-  silueta.bezierCurveTo(cx - BW * 0.34, cy + BH * 0.84, cx - BW * 0.42, cy + BH * 0.68, cx - BW * 0.44, cy + BH * 0.55); // surco retro
-  silueta.bezierCurveTo(cx - BW * 0.50, cy + BH * 0.28, cx - BW * 1.02, cy + BH * 0.22, cx - BW * 1.00, cy - BH * 0.25); // nuca / occipital
-  silueta.bezierCurveTo(cx - BW * 0.97, cy - BH * 0.62, cx - BW * 0.55, cy - BH * 0.97, cx + BW * 0.10, cy - BH * 0.98); // corona
-  silueta.closePath();
-
-  // Surco lateral (curva interior que separa el lóbulo temporal)
-  const surco = new Path2D();
-  surco.moveTo(cx + BW * 0.96, cy + BH * 0.12);
-  surco.quadraticCurveTo(cx + BW * 0.45, cy + BH * 0.22, cx + BW * 0.16, cy + BH * 0.58);
-
-  // Neuronas dentro de la silueta (muestreo por rechazo)
-  // En móviles carga liviana: menos somas y sinapsis (GPU y batería)
+  const R = Math.min(W, H) * 0.305; // radio general del reactor
+  const RC = R * 0.30;              // núcleo central
+  // En móviles carga liviana: menos marcas y chispas (GPU y batería)
   const MOVIL = Math.min(innerWidth, innerHeight) < 700;
-  const NODOS = MOVIL ? 72 : 110, DMAX = MOVIL ? 76 : 88;
-  const dentro = (x, y) => ctx.isPointInPath(silueta, x, y);
-  const nodes = [];
-  let intentos = 0;
-  while (nodes.length < NODOS && intentos < 4000) {
-    intentos++;
-    const x = cx + (Math.random() * 2 - 1) * BW * 1.05, y = cy + (Math.random() * 2 - 1) * BH * 1.05;
-    if (!dentro(x, y)) continue;
-    nodes.push({ x, y, r: 1.1 + Math.random() * 1.7, glow: 0, glob: Math.random() * 6.28 });
-  }
-  // Sinapsis: solo entre neuronas cercanas (distancia anatómica)
-  const links = [];
-  for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
-    const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
-    const d = Math.sqrt(dx * dx + dy * dy);
-    if (d < DMAX) links.push({ a: i, b: j, p: Math.random(), v: 0.005 + Math.random() * 0.012 });
-  }
+  const SEG = MOVIL ? 16 : 22;      // segmentos del anillo exterior
+  const MARCAS = MOVIL ? 26 : 40;   // marcas finas del anillo interior
+  const BOBINAS = 10;               // bobinas radiales del reactor
+  const CHISPAS = MOVIL ? 5 : 8;    // pulsos viajeros por carril
 
   // Halo pre-renderizado (sprite): evita crear gradientes en cada cuadro (costoso en móvil)
   const crearSprite = (c) => {
@@ -1684,89 +1652,102 @@ function brainNetwork() {
     return sp;
   };
   const spCian = crearSprite([72, 233, 255]), spAmbar = crearSprite([255, 179, 0]);
-  // Relleno de la silueta precalculado (uno por color), atenuado con globalAlpha
-  const crearRelleno = (c) => {
-    const g = ctx.createRadialGradient(cx, cy - BH * 0.3, 10, cx, cy, BW * 1.2);
-    g.addColorStop(0, `rgba(${c[0]},${c[1]},${c[2]},.10)`);
-    g.addColorStop(1, `rgba(${c[0]},${c[1]},${c[2]},0)`);
-    return g;
-  };
-  const rellenoCian = crearRelleno([72, 233, 255]), rellenoAmbar = crearRelleno([255, 179, 0]);
+  // Chispas: ángulo, velocidad y tamaño propios (carriles alternos giran al revés)
+  const CH = Array.from({ length: CHISPAS }, (_, i) => ({
+    ang: Math.random() * 6.283,
+    v: 0.0004 + Math.random() * 0.0006,
+    r: 1.8 + Math.random() * 1.6,
+    dir: i % 2 ? -1 : 1,
+    carril: i % 2,
+  }));
 
   function draw(t) {
-    if (miGen !== brainGen) return; // un cerebro nuevo tomó el lienzo
+    if (miGen !== brainGen) return; // un reactor nuevo tomó el lienzo
     t = t || 0;
     ctx.clearRect(0, 0, W, H);
     const st = document.body.getAttribute("data-state") || "standby";
     const activo = st !== "standby";
     const col = st === "speaking" ? [255, 179, 0] : [72, 233, 255];
-    const g = activo ? 0.95 : 0.38;
+    const g = activo ? 1 : 0.42;
     const C = (a) => `rgba(${col[0]},${col[1]},${col[2]},${a})`;
+    const TAU = 6.28318;
+    const w = t * (activo ? 0.0006 : 0.00024); // giro maestro de la carcasa
 
-    // contorno del cerebro + relleno tenue
-    ctx.save();
-    ctx.strokeStyle = C(0.5 * g); ctx.lineWidth = 1.7;
-    ctx.shadowColor = C(0.6); ctx.shadowBlur = activo ? 14 : 6;
-    ctx.stroke(silueta);
-    ctx.globalAlpha = activo ? 1 : 0.4;
-    ctx.fillStyle = st === "speaking" ? rellenoAmbar : rellenoCian;
-    ctx.fill(silueta);
+    // halo de energía grande detrás de todo (sprite, barato)
+    const haloR = R * (1.18 + (activo ? 0.05 * Math.sin(t / 300) : 0));
+    ctx.globalAlpha = activo ? 0.9 : 0.4;
+    ctx.drawImage(st === "speaking" ? spAmbar : spCian, cx - haloR, cy - haloR, haloR * 2, haloR * 2);
     ctx.globalAlpha = 1;
-    ctx.restore();
 
-    // surco lateral del lóbulo temporal
-    ctx.strokeStyle = C(0.35 * g); ctx.lineWidth = 1.3;
-    ctx.stroke(surco);
-
-    // circunvoluciones (giros) — pliegues orgánicos que respiran, dentro de la silueta
-    ctx.save();
-    ctx.clip(silueta);
-    ctx.strokeStyle = C(0.16 * g); ctx.lineWidth = 1;
-    for (let i = 0; i < 7; i++) {
-      const yy = cy - BH * 0.82 + (i * BH * 1.25) / 7;
-      const amp = 12 + Math.sin(t / 1500 + i * 1.7) * 3;
-      const x0 = cx - BW * (i % 2 ? 0.92 : 0.80), x1 = cx + BW * (i % 2 ? 0.86 : 0.98);
-      ctx.beginPath();
-      ctx.moveTo(x0, yy);
-      ctx.bezierCurveTo(cx - BW * 0.4, yy - amp, cx - BW * 0.05, yy + amp, cx + BW * 0.3, yy - amp * 0.5);
-      ctx.bezierCurveTo(cx + BW * 0.55, yy - amp, cx + BW * 0.75, yy + amp * 0.4, x1, yy);
-      ctx.stroke();
+    // 1) anillo exterior segmentado, girando con la carcasa
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(w);
+    ctx.strokeStyle = C(0.6 * g); ctx.lineWidth = 2.4;
+    for (let i = 0; i < SEG; i++) {
+      const a0 = (i * TAU) / SEG;
+      ctx.beginPath(); ctx.arc(0, 0, R * 1.03, a0, a0 + (TAU / SEG) * 0.52); ctx.stroke();
     }
-    // lámina del cerebelo (3 arquitos al fondo-abajo)
-    for (let i = 0; i < 3; i++) {
-      ctx.strokeStyle = C(0.22 * g);
+    // 2) anillo de marcas finas, contrarrotante (mecanismo visible)
+    ctx.rotate(-w * 3.6);
+    ctx.strokeStyle = C(0.32 * g); ctx.lineWidth = 1;
+    for (let i = 0; i < MARCAS; i++) {
+      const a = (i * TAU) / MARCAS;
       ctx.beginPath();
-      ctx.arc(cx - BW * 0.24, cy + BH * (0.62 + i * 0.09), BW * 0.18, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.moveTo(Math.cos(a) * R * 0.88, Math.sin(a) * R * 0.88);
+      ctx.lineTo(Math.cos(a) * R * 0.95, Math.sin(a) * R * 0.95);
       ctx.stroke();
     }
     ctx.restore();
 
-    // sinapsis con pulsos viajeros
-    for (const l of links) {
-      const a = nodes[l.a], b = nodes[l.b];
-      ctx.strokeStyle = C(0.10 * g); ctx.lineWidth = 0.55;
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      l.p += l.v * (activo ? 2.2 : 1);
-      if (l.p > 1) { l.p = 0; nodes[l.b].glow = 1; } // el pulso enciende la neurona destino
-      const px = a.x + (b.x - a.x) * l.p, py = a.y + (b.y - a.y) * l.p;
-      ctx.fillStyle = C(0.9 * g);
-      ctx.beginPath(); ctx.arc(px, py, 1.6, 0, 7); ctx.fill();
+    // 3) aros fijos finos que encajonan las bobinas
+    ctx.strokeStyle = C(0.5 * g); ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.80, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = C(0.3 * g);
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.66, 0, TAU); ctx.stroke();
+
+    // 4) bobinas radiales (10): el marco icónico del reactor, girando; en
+    //    operación se DISPARAN en secuencia como el orden de encendido real
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(w * 0.75);
+    const firing = activo ? Math.floor(t / 110) % BOBINAS : -1;
+    for (let i = 0; i < BOBINAS; i++) {
+      ctx.save(); ctx.rotate((i * TAU) / BOBINAS);
+      const fuego = activo && i === firing;
+      const ra1 = 0.74 * R, ra0 = 0.42 * R; // radio exterior / interior de la bobina
+      const aOut = (TAU / BOBINAS) * 0.30, aIn = aOut * 0.5; // forma de trapecio
+      ctx.beginPath();
+      ctx.moveTo(ra1 * Math.cos(-aOut), ra1 * Math.sin(-aOut));
+      ctx.lineTo(ra1 * Math.cos(aOut), ra1 * Math.sin(aOut));
+      ctx.lineTo(ra0 * Math.cos(aIn), ra0 * Math.sin(aIn));
+      ctx.lineTo(ra0 * Math.cos(-aIn), ra0 * Math.sin(-aIn));
+      ctx.closePath();
+      ctx.fillStyle = C(fuego ? 0.9 : 0.20 * g);
+      ctx.fill();
+      ctx.strokeStyle = C(fuego ? 1 : 0.45 * g);
+      ctx.lineWidth = fuego ? 2 : 1;
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // 5) chispas de energía viajeras por dos carriles
+    for (const p of CH) {
+      p.ang = (p.ang + p.v * (activo ? 2.4 : 1) * p.dir) % TAU;
+      const rr = p.carril ? R * 0.89 : R * 1.03;
+      const px = cx + Math.cos(p.ang) * rr, py = cy + Math.sin(p.ang) * rr;
+      ctx.fillStyle = C(0.95 * g);
+      ctx.beginPath(); ctx.arc(px, py, p.r, 0, TAU); ctx.fill();
     }
 
-    // neuronas (cuerpo + halo de activación)
-    for (const n of nodes) {
-      if (n.glow > 0.01) n.glow *= 0.96;
-      if (activo && Math.random() < 0.0025) n.glow = 1; // chispas espontáneas al trabajar
-      const latido = 0.75 + Math.sin(t / 900 + n.glob) * 0.25;
-      ctx.fillStyle = C(0.55 * g * latido);
-      ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 7); ctx.fill();
-      if (n.glow > 0.05) {
-        const rg = 6 + n.glow * 10;
-        ctx.globalAlpha = Math.min(1, n.glow * 0.9);
-        ctx.drawImage(st === "speaking" ? spAmbar : spCian, n.x - rg, n.y - rg, rg * 2, rg * 2);
-        ctx.globalAlpha = 1;
-      }
-    }
+    // 6) núcleo: disco pulsante con centro blanco incandescente
+    const lat = activo ? 0.06 * Math.sin(t / 260) : 0.03 * Math.sin(t / 900);
+    const rp = RC * (1 + lat) * 0.8;
+    ctx.globalAlpha = activo ? 0.95 : 0.5;
+    ctx.drawImage(st === "speaking" ? spAmbar : spCian, cx - rp * 2.2, cy - rp * 2.2, rp * 4.4, rp * 4.4);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = C(0.92 * g);
+    ctx.beginPath(); ctx.arc(cx, cy, rp, 0, TAU); ctx.fill();
+    ctx.fillStyle = `rgba(255,255,255,${activo ? 0.8 : 0.4})`;
+    ctx.beginPath(); ctx.arc(cx, cy, rp * 0.5, 0, TAU); ctx.fill();
+
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);

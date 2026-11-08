@@ -85,7 +85,9 @@ body[data-state="speaking"] .status-pill{color:var(--amber);border-color:rgba(25
 #brainCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:2}
 .orb-halo{position:absolute;inset:-6%;z-index:0;background:radial-gradient(48% 44% at 50% 50%,rgba(72,233,255,.16),transparent 70%);filter:blur(6px);animation:breathe 5s ease-in-out infinite}
 .orb-ring{position:absolute;z-index:3;border-radius:50%;pointer-events:none}
-.ring-outer{inset:4% 9%;border:1px dashed rgba(72,233,255,.28)}
+.ring-outer{inset:4% 9%;border:1px dashed rgba(72,233,255,.28);animation:giroReactor 48s linear infinite}
+/* Rotación lenta del marco del reactor (acento giratorio del conjunto) */
+@keyframes giroReactor{to{transform:rotate(360deg)}}
 body[data-state="listening"] .orb-stage{filter:saturate(1.25) brightness(1.08)}
 body[data-state="listening"] .orb-halo{background:radial-gradient(50% 46% at 50% 50%,rgba(72,233,255,.28),transparent 70%)}
 body[data-state="listening"] .ring-outer{border-color:rgba(72,233,255,.55);box-shadow:0 0 22px rgba(72,233,255,.16),inset 0 0 22px rgba(72,233,255,.08)}
