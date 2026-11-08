@@ -77,7 +77,8 @@ async function authorize() {
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: msRedirectUri(),
-    response_mode: "query",
+    // SPA exige fragment: el código llega después del # (query solo vale para apps Web)
+    response_mode: "fragment",
     response_type: "code",
     scope: MS_SCOPES,
     code_challenge: challenge,
@@ -90,14 +91,17 @@ async function authorize() {
 
 /* Se llama al cargar la página. Devuelve true si procesó un callback de Microsoft. */
 async function handleCallback() {
-  const q = new URLSearchParams(location.search);
+  // el código puede venir en fragment (#) si la app es SPA o query (?) si es Web
+  const paramsStr = (location.hash || "").replace(/^#/, "") + "&" + String(location.search || "").replace(/^\?/, "");
+  const q = new URLSearchParams(paramsStr);
   const code = q.get("code"), state = q.get("state"), error = q.get("error");
   const esNuestro = sessionStorage.getItem("ms_state");
   if (!esNuestro && !code) return false; // no es callback de Outlook
   if (error) {
+    const detalle = q.get("error_description") || "";
     sessionStorage.removeItem("ms_state"); sessionStorage.removeItem("ms_verifier");
     history.replaceState(null, "", location.pathname);
-    throw new Error("Acceso denegado por Microsoft: " + error);
+    throw new Error("Microsoft rechazó el acceso: " + error + (detalle ? " — " + detalle.slice(0, 160) : ""));
   }
   if (!code) return false;
   if (state !== esNuestro) {
