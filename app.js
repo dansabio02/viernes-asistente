@@ -84,10 +84,20 @@ async function groqChat(mensajes, opts = {}) {
   return c;
 }
 
-/* ==== TRATO ROTATIVO (lo controla el CLIENTE, no el modelo) ====
-   Alterna "Señor" → "Señor Daniel" → "Jefe" en cada respuesta, siempre
-   al INICIO. Si el modelo antepone su propio trato, se le quita y se
-   pone el del turno; así la alternancia es perfecta y garantizada. */
+/* ==== TRATO ADAPTATIVO CON CRITERIO (lo controla el CLIENTE) ====
+   Ya no rota como máquina ("Señor" sale la mitad de las veces por pura
+   aritmética). Ahora VIERNES elige el trato según lo que VA a decir,
+   con pesos que aprende del jefe:
+     · URGENTE (alarmas, avisos, bloqueo) → "Jefe" se dice firme.
+     · INFORMATIVO (datos, listas, estado) → "Señor Daniel" / "Señor".
+     · CONVERSA (cerebro, cámara) → "Jefe" / "Señor Daniel"; el "Señor"
+       seco casi no aplica.
+     · Confirmación breve a veces va SIN trato: natural, no automatico.
+   Y aprende: si el jefe corrige ("no me digas Señor", "llámame Jefe",
+   "prefiero que me digas Señor Daniel"), ajusta los pesos y los
+   recuerda para siempre; además digestión automática: cada seis turnos
+   el cerebro destila preferencias y si compra "prefiere que le diga
+   X", el trato se ajusta solo. */
 const TRATOS_FIJOS = ["Señor", "Señor Daniel", "Jefe"];
 function listaTratos() {
   const lista = [];
@@ -99,33 +109,101 @@ function listaTratos() {
   }
   return lista;
 }
-// Avanza y devuelve el trato del turno (persistente entre sesiones)
-function tratarTurno() {
-  const l = listaTratos(),
-    i = ((Number(localStorage.getItem("viernes_trato")) || 0) % l.length + l.length) % l.length;
-  try { localStorage.setItem("viernes_trato", String((i + 1) % l.length)); } catch (e) {}
-  return l[i];
+/* Estado vivo del trato: pesos aprendidos + contra-repetición. Persistente. */
+let tratoEstado = { pesos: null, ultimo: "", seguidos: 0 };
+try { const g = JSON.parse(localStorage.getItem("viernes_trato2") || "null"); if (g && typeof g === "object") tratoEstado = g; } catch (e) {}
+if (!tratoEstado.pesos || typeof tratoEstado.pesos !== "object") tratoEstado.pesos = { "señor": 0.8, "señor daniel": 1.2, "jefe": 1.2 }; // el "Señor" seco, más raro de fábrica
+tratoEstado.ultimo = tratoEstado.ultimo || "";
+tratoEstado.seguidos = Number(tratoEstado.seguidos) || 0;
+function guardarTratoEstado() { try { localStorage.setItem("viernes_trato2", JSON.stringify(tratoEstado)); } catch (e) {} }
+const ajustarPeso = (nombre, factor) => {
+  const k = String(nombre).toLowerCase();
+  if (!k) return;
+  tratoEstado.pesos[k] = Math.max(0.15, Math.min(3, (Number(tratoEstado.pesos[k]) || (k === "señor" ? 0.8 : 1.2)) * factor));
+};
+/* Elige el trato del turno según qué se va a decir (con crítica y memoria) */
+function tratarTurno(tipo = "informativo") {
+  const l = listaTratos();
+  const opciones = l.map((t) => {
+    const k = t.toLowerCase();
+    let peso = Number(tratoEstado.pesos[k]);
+    if (!(peso > 0)) peso = (k === (cfg.userName || "").toLowerCase() || k === (cfg.altName || "").toLowerCase()) ? 1.3 : 1.0;
+    // criterio: cómo suena mejor según el mensaje
+    if (tipo === "urgente") { if (k === "jefe") peso *= 1.8; else if (k === "señor") peso *= 0.5; }
+    else if (tipo === "conversa") { if (k === "señor") peso *= 0.45; else if (k === "jefe") peso *= 1.25; }
+    else { if (k === "señor daniel" || k === (cfg.userName || "").toLowerCase()) peso *= 1.35; if (k === "jefe") peso *= 0.8; }
+    // antirrepetición: el mismo trato dos veces seguidas cansa
+    if (k === tratoEstado.ultimo.toLowerCase()) peso *= tratoEstado.seguidos >= 1 ? 0.35 : 0.6;
+    return { t, peso: Math.max(0.02, peso) };
+  });
+  const total = opciones.reduce((a, o) => a + o.peso, 0);
+  let pick = opciones[0], dardo = Math.random() * total;
+  for (const o of opciones) { dardo -= o.peso; if (dardo <= 0) { pick = o; break; } }
+  if (pick.t.toLowerCase() === tratoEstado.ultimo.toLowerCase()) tratoEstado.seguidos++;
+  else { tratoEstado.ultimo = pick.t; tratoEstado.seguidos = 0; }
+  guardarTratoEstado();
+  return pick.t;
 }
-// Trato para frases locales (primera palabra, ej. "Señor")
-function tratoInicio() {
-  return (tratarTurno() || "Señor").trim().split(/\s+/)[0];
+/* Trato para frases locales — completo, sin recortar ("Señor Daniel", no "Señor" a medias) */
+function tratoInicio(tipo = "informativo") {
+  return (tratarTurno(tipo) || "").trim();
 }
-
+/* Naturalidad: en confirmaciones breves de una sola frase, a veces el trato
+   sobra y sin él suena humano. Se aplica en el canal central de respuestas. */
+function pulirTrato(s) {
+  const pats = listaTratos().map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const m = String(s).match(new RegExp("^(" + pats + ")\\s*,\\s*([^.!?…]{8,64}[.?!…])\\s*$", "i"));
+  return (m && Math.random() < 0.4) ? m[2].charAt(0).toUpperCase() + m[2].slice(1) : String(s);
+}
 /* Quita cualquier trato que el modelo haya puesto al inicio de su texto. */
 function quitarTratoIA(texto) {
   const frase = (texto || "").trim().replace(/^["«“”']+/, "");
   const pats = listaTratos().map(t => t.toLowerCase().replace(/[^\wáéíóúñü\s]/g, "").trim()).filter(Boolean)
     .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
   const pat = new RegExp("^(" + pats + ")\\s*(?:daniel|jefe)?\\s*[,:¡!]\\s*", "i");
-  return { texto: pat.test(frase) ? frase.replace(pat, "").trim() : frase, trato: tratarTurno() };
+  return { texto: pat.test(frase) ? frase.replace(pat, "").trim() : frase, trato: tratarTurno("conversa") };
 }
 
 /* Convierte la respuesta del modelo (con o sin trato propio) en la versión
-   final que se muestra y se habla: trato del turno + texto natural. */
+   final que se muestra y se habla: trato elegido con criterio + texto natural. */
 function prepararRespuesta(respuesta) {
   const { texto, trato } = quitarTratoIA(respuesta);
   if (!texto) return trato + ", estamos en línea.";
   return trato + ", " + texto.charAt(0).toLowerCase() + texto.slice(1);
+}
+
+/* APRENDIZAJE DEL TRATO: correcciones directas del jefe.
+   «no me digas Señor» → lo baja casi a cero y sube los demás;
+   «llámame Jefe» / «prefiero que me digas Señor Daniel» → lo sube fuerte.
+   Responde breve confirmando. Devuelve respuesta o null si no es corrección. */
+function aprendeTrato(texto) {
+  const prohibir = /(?:no\s+(?:me\s+)?(?:digas?|llames?)\s+(?:más\s+)?|no\s+quiero que me digas?\s+|basta\s+de\s+|ya\s+no\s+me\s+digas?\s+)(señor daniel|señor|jefe|don daniel|patrón|patron|boss)/i;
+  const pedir = /(?:ll[aá]mame|prefiero que me digas?|quisiera que me digas?|me gusta que me digas?|puedes decirme)\s+(señor daniel|señor|jefe|don daniel|patrón|patron|boss)/i;
+  const mNo = prohibir.exec(texto), mSí = pedir.exec(texto);
+  if (!mNo && !mSí) return null;
+  let ajustados = [];
+  const aplicar = (m, factorSube) => {
+    if (!m) return; // sin corrección en esta dirección: no tocar nada
+    const k = (m[1] || "").toLowerCase();
+    if (!k) return;
+    // casa el vocablo aprendido con la lista de tratos reales (exacto, luego por primera palabra)
+    const primer = (k.split(" ")[0] || "").trim();
+    const todos = listaTratos();
+    const enLista = todos.find((t) => t.toLowerCase() === k) || todos.find((t) => t.toLowerCase().startsWith(primer));
+    if (!enLista) return;
+    ajustarPeso(enLista, factorSube ? 2.2 : 0.3);
+    for (const t of listaTratos()) if (t.toLowerCase() !== (enLista || "").toLowerCase()) ajustarPeso(t, factorSube ? 0.85 : 1.2);
+    ajustados.push(enLista);
+  };
+  aplicar(mNo, false);
+  aplicar(mSí, true);
+  if (!ajustados.length) return null;
+  guardarTratoEstado();
+  // forma bonita del trato aprendido
+  const bonito = listaTratos().find((t) => ajustados.some((a) => a.toLowerCase() === t.toLowerCase())) || ajustados[0];
+  return (mNo && !mSí)
+    ? tratoInicio("confirma") + ", como quiera: dejaré de decirle así y le hablaré del modo que le plazca."
+    : tratoInicio("confirma") + ", anotado: le voy a hablar así, " + bonito + ", y me quedo con su costumbre.";
 }
 
 function systemPrompt() {
@@ -233,7 +311,7 @@ function volcarBuffer() {
     ultimoTranscriptTime = Date.now();
     log("Escucha dudosa (" + Math.round(conf * 100) + "%): pidiendo repetición", "warn");
     toast("No le entendí bien. Repita, por favor.");
-    hablarLocal(tratoInicio() + ", no alcanzó a entenderme bien. ¿Puede repetirlo de otra forma?");
+    hablarLocal(tratoInicio("conversa") + ", no alcanzó a entenderme bien. ¿Puede repetirlo de otra forma?");
     return;
   }
   const clave = normalizar(completo);
@@ -336,7 +414,7 @@ function procesarVoz(texto) {
     if (!verificarPassphrase(cmd)) {
       setEstado("listening");
       toast("🔒 Bloqueado. Diga la frase de acceso.");
-      hablarLocal(tratoInicio() + ", bloqueado. Diga la frase de acceso.");
+      hablarLocal(tratoInicio("urgente") + ", bloqueado. Diga la frase de acceso.");
       return;
     }
     enviarTexto(cmd);
@@ -860,6 +938,19 @@ function destilarAprendizajes() {
       if (aprendizajes.some((a) => textoSimilar(a.txt, t))) continue;
       aprendizajes.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), t: Date.now(), txt: t });
       added++;
+      // Trato que aprende solo: si el hecho destila preferencia de cómo hablarle, se aplica al momento
+      const mx = t.match(/(.{0,45}?)\b(?:digas?|digamos|digan|ll[aá]mame)\b[^.]{0,40}?\b(señor daniel|señor|jefe|don daniel|patrón|patron)\b/i);
+      if (mx) {
+        const negado = /\b(?:no|nunca|jam[aá]s)\b/.test(mx[1]);
+        const primer = mx[2].toLowerCase().split(" ")[0];
+        const enLista = listaTratos().find((x) => x.toLowerCase().startsWith(primer));
+        if (enLista) {
+          if (negado) { ajustarPeso(enLista, 0.35); for (const x of listaTratos()) if (x !== enLista) ajustarPeso(x, 1.2); }
+          else { ajustarPeso(enLista, 1.9); for (const x of listaTratos()) if (x !== enLista) ajustarPeso(x, 0.9); }
+          guardarTratoEstado();
+          log("Trato ajustado solo, por lo aprendido: " + enLista + (negado ? " menos" : " más"), "ok");
+        }
+      }
     }
     if (added) { guardarAprendizajes(); log("Aprendizaje nuevo de la conversación: " + added + (added === 1 ? " lección" : " lecciones"), "ok"); }
   }).catch(() => {}).finally(() => { destilando = false; });
@@ -1024,7 +1115,7 @@ function checkRecordatorios() {
     log(r2.tipo + " disparada: " + (cuerpo || "—"), "warn");
     const miGen = ++hablarGen;
     if (synth) { try { synth.cancel(); } catch (e) {} }
-    hablarLocal(tratoInicio() + ", " + mensaje);
+    hablarLocal(tratoInicio("urgente") + ", " + mensaje);
   }
   if (cambios) guardarRecordatorios();
 }
@@ -1388,6 +1479,8 @@ async function enviarTexto(texto) {
     // Comando local instantáneo (hora, fecha, saludo, estado) — sin IA
     let resp;
     if (!contextoImagen) resp = comandoLocal(texto);
+    // Corrección del trato: «no me digas Señor», «llámame Jefe» — se aprende al instante
+    if (!resp && !contextoImagen) { try { resp = aprendeTrato(texto); } catch (e) { log("Trato: " + e.message, "warn"); } }
     // Aprendizaje directo: «aprende que…» / «memoriza…» / «recuerda siempre…»
     if (!resp && !contextoImagen) { try { resp = await comandoAprender(texto); } catch (e) { log("Aprendizaje: " + e.message, "warn"); } }
     // Memoria: apuntar, leer notas, borrar, sincronizar bitácora
@@ -1411,6 +1504,8 @@ async function enviarTexto(texto) {
       // Destilación de aprendizajes: cada 6 turnos con el cerebro, en segundo plano
       if (!contextoImagen && ++turnoAprender % 6 === 0) setTimeout(destilarAprendizajes, 600);
     }
+    // Naturalidad: en confirmaciones breves, a veces el trato sobra
+    resp = pulirTrato(resp);
     historial.push({ role: "user", content: texto || "[imagen]" }); historial.push({ role: "assistant", content: resp });
     if (cfg.memory) { try { localStorage.setItem("viernes_hist", JSON.stringify(historial.slice(-30))); } catch (e) {} }
     $("tLatency").textContent = (Date.now() - t0) + " ms";
