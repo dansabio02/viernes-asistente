@@ -1637,7 +1637,7 @@ function brainNetwork() {
   const MOVIL = Math.min(innerWidth, innerHeight) < 700;
   const SEG = MOVIL ? 16 : 22;      // segmentos del anillo exterior
   const MARCAS = MOVIL ? 26 : 40;   // marcas finas del anillo interior
-  const BOBINAS = 10;               // bobinas radiales del reactor
+  const BOBINAS = 12;               // bobinas radiales del reactor (perfil Mark 50)
   const CHISPAS = MOVIL ? 5 : 8;    // pulsos viajeros por carril
 
   // Halo pre-renderizado (sprite): evita crear gradientes en cada cuadro (costoso en móvil)
@@ -1651,7 +1651,7 @@ function brainNetwork() {
     x.fillStyle = g; x.fillRect(0, 0, 64, 64);
     return sp;
   };
-  const spCian = crearSprite([72, 233, 255]), spAmbar = crearSprite([255, 179, 0]);
+  const spCian = crearSprite([62, 155, 255]), spAmbar = crearSprite([255, 179, 0]);
   // Chispas: ángulo, velocidad y tamaño propios (carriles alternos giran al revés)
   const CH = Array.from({ length: CHISPAS }, (_, i) => ({
     ang: Math.random() * 6.283,
@@ -1667,11 +1667,11 @@ function brainNetwork() {
     ctx.clearRect(0, 0, W, H);
     const st = document.body.getAttribute("data-state") || "standby";
     const activo = st !== "standby";
-    const col = st === "speaking" ? [255, 179, 0] : [72, 233, 255];
+    const col = st === "speaking" ? [255, 179, 0] : [62, 155, 255]; // Endgame: azul eléctrico profundo
     const g = activo ? 1 : 0.42;
     const C = (a) => `rgba(${col[0]},${col[1]},${col[2]},${a})`;
     const TAU = 6.28318;
-    const w = t * (activo ? 0.0006 : 0.00024); // giro maestro de la carcasa
+    const w = t * (activo ? 0.00075 : 0.00024); // giro maestro de la carcasa (Endgame: más vivo)
 
     // halo de energía grande detrás de todo (sprite, barato)
     const haloR = R * (1.18 + (activo ? 0.05 * Math.sin(t / 300) : 0));
@@ -1722,7 +1722,7 @@ function brainNetwork() {
       ctx.fillStyle = C(fuego ? 0.9 : 0.20 * g);
       ctx.fill();
       ctx.strokeStyle = C(fuego ? 1 : 0.45 * g);
-      ctx.lineWidth = fuego ? 2 : 1;
+      ctx.lineWidth = fuego ? 1.7 : 0.9; // Endgame: líneas más finas, nanotecnología
       ctx.stroke();
       ctx.restore();
     }
@@ -1745,8 +1745,8 @@ function brainNetwork() {
     ctx.globalAlpha = 1;
     ctx.fillStyle = C(0.92 * g);
     ctx.beginPath(); ctx.arc(cx, cy, rp, 0, TAU); ctx.fill();
-    ctx.fillStyle = `rgba(255,255,255,${activo ? 0.8 : 0.4})`;
-    ctx.beginPath(); ctx.arc(cx, cy, rp * 0.5, 0, TAU); ctx.fill();
+    ctx.fillStyle = `rgba(255,255,255,${activo ? 0.9 : 0.45})`;
+    ctx.beginPath(); ctx.arc(cx, cy, rp * 0.62, 0, TAU); ctx.fill(); // cuerpo blanco dominante (Endgame)
 
     requestAnimationFrame(draw);
   }

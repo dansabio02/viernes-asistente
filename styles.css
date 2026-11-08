@@ -83,14 +83,14 @@ body[data-state="speaking"] .status-pill{color:var(--amber);border-color:rgba(25
 .stage{flex:none;display:flex;flex-direction:column;align-items:center;padding:10px 12px 4px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(5,10,20,.5),transparent)}
 .orb-stage{position:relative;width:min(100%,470px);aspect-ratio:720/460;transition:filter .4s}
 #brainCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:2}
-.orb-halo{position:absolute;inset:-6%;z-index:0;background:radial-gradient(48% 44% at 50% 50%,rgba(72,233,255,.16),transparent 70%);filter:blur(6px);animation:breathe 5s ease-in-out infinite}
+.orb-halo{position:absolute;inset:-6%;z-index:0;background:radial-gradient(48% 44% at 50% 50%,rgba(62,155,255,.16),transparent 70%);filter:blur(6px);animation:breathe 5s ease-in-out infinite}
 .orb-ring{position:absolute;z-index:3;border-radius:50%;pointer-events:none}
-.ring-outer{inset:4% 9%;border:1px dashed rgba(72,233,255,.28);animation:giroReactor 48s linear infinite}
+.ring-outer{inset:4% 9%;border:1px dashed rgba(62,155,255,.30);animation:giroReactor 48s linear infinite}
 /* Rotación lenta del marco del reactor (acento giratorio del conjunto) */
 @keyframes giroReactor{to{transform:rotate(360deg)}}
 body[data-state="listening"] .orb-stage{filter:saturate(1.25) brightness(1.08)}
-body[data-state="listening"] .orb-halo{background:radial-gradient(50% 46% at 50% 50%,rgba(72,233,255,.28),transparent 70%)}
-body[data-state="listening"] .ring-outer{border-color:rgba(72,233,255,.55);box-shadow:0 0 22px rgba(72,233,255,.16),inset 0 0 22px rgba(72,233,255,.08)}
+body[data-state="listening"] .orb-halo{background:radial-gradient(50% 46% at 50% 50%,rgba(62,155,255,.30),transparent 70%)}
+body[data-state="listening"] .ring-outer{border-color:rgba(62,155,255,.60);box-shadow:0 0 22px rgba(62,155,255,.16),inset 0 0 22px rgba(62,155,255,.08)}
 body[data-state="speaking"] .orb-stage{filter:saturate(1.1) brightness(1.05)}
 body[data-state="speaking"] .orb-halo{background:radial-gradient(50% 46% at 50% 50%,rgba(255,179,0,.16),transparent 70%)}
 body[data-state="speaking"] .ring-outer{border-color:rgba(255,179,0,.5)}
