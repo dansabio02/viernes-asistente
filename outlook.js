@@ -101,7 +101,17 @@ async function handleCallback() {
     const detalle = q.get("error_description") || "";
     sessionStorage.removeItem("ms_state"); sessionStorage.removeItem("ms_verifier");
     history.replaceState(null, "", location.pathname);
-    throw new Error("Microsoft rechazó el acceso: " + error + (detalle ? " — " + detalle.slice(0, 160) : ""));
+    // consejos concretos por código de error conocido
+    const AYUDA = {
+      AADSTS50194: "arregle el registro en Entra ID: su app VIERNES quedó como 'solo cuentas de esta organización'; cámbiela a 'Cuentas en cualquier directorio organizativo y cuentas Microsoft personales' (o re-registre con esa opción) y sigue con el mismo Client ID",
+      AADSTS50011: "el URI de redirección no coincide: en Autenticación cree plataforma SPA con EXACTAMENTE " + msRedirectUri() + " (con barra final)",
+      AADSTS9002326: "la plataforma quedó registrada como Web; cámbiela a 'Aplicación de una sola página (SPA)'",
+      AADSTS7000218: "la plataforma quedó registrada como Web; cámbiela a 'Aplicación de una sola página (SPA)'",
+    };
+    const codigo = (detalle.match(/AADSTS\d+/) || [""])[0];
+    throw new Error("Microsoft rechazó el acceso: " + error
+      + (codigo ? " (" + codigo + ")" : "")
+      + (AYUDA[codigo] ? " — " + AYUDA[codigo] : (detalle && !codigo ? " — " + detalle.slice(0, 160) : "")));
   }
   if (!code) return false;
   if (state !== esNuestro) {
