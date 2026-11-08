@@ -16,9 +16,11 @@ const MS_CLIENT_KEY = "viernes_ms_clientid";
 const MS_TOKEN_KEY = "viernes_ms_tokens";
 
 const MS_SCOPES = "offline_access User.Read Mail.Read Mail.Send Calendars.ReadWrite";
-const MS_AUTH = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
-const MS_TOKEN = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+/* Tenant: "common" admite cuentas personales Y laborales; cuando un registro
+   de app no es multi-tenant, Microsoft lo rechaza (AADSTS50194) y el módulo
+   re-intenta solo con "consumers" (cuentas personales de Outlook, Hotmail, Live). */
 const GRAPH = "https://graph.microsoft.com/v1.0";
+function msAuthBase(t) { return "https://login.microsoftonline.com/" + (t || "common") + "/oauth2/v2.0"; }
 
 /* ── utilidades base64 / PKCE (duplicadas para que ambos módulos vivan solos) ── */
 function msB64url(bytes) {
@@ -74,6 +76,7 @@ async function authorize() {
   const state = msRandom(16);
   sessionStorage.setItem("ms_verifier", verifier);
   sessionStorage.setItem("ms_state", state);
+  const tenant = sessionStorage.getItem("ms_tenant") || "common";
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: msRedirectUri(),
@@ -86,7 +89,7 @@ async function authorize() {
     state: state,
     prompt: "consent",
   });
-  location.href = MS_AUTH + "?" + params.toString();
+  location.href = msAuthBase(tenant) + "/authorize?" + params.toString();
 }
 
 /* Se llama al cargar la página. Devuelve true si procesó un callback de Microsoft. */
@@ -99,25 +102,36 @@ async function handleCallback() {
   if (!esNuestro && !code) return false; // no es callback de Outlook
   if (error) {
     const detalle = q.get("error_description") || "";
+    const codigo = (detalle.match(/AADSTS\d+/) || [""])[0];
     sessionStorage.removeItem("ms_state"); sessionStorage.removeItem("ms_verifier");
     history.replaceState(null, "", location.pathname);
+    // Registro no multi-tenant: Microsoft solo acepta cuentas de un solo tipo.
+    // Reintento AUTOMÁTICO con el tenant de cuentas personales (consumers):
+    // cubre apps registradas con "solo cuentas personales de Microsoft".
+    if (codigo === "AADSTS50194") {
+      if ((sessionStorage.getItem("ms_tenant") || "common") === "common") {
+        sessionStorage.setItem("ms_tenant", "consumers");
+        await authorize(); // redirige de nuevo con el tenant personal
+        return false;
+      }
+      throw new Error("Su registro de la app en Entra ID solo acepta cuentas de la organización. Vuelva a registrar VIERNES eligiendo 'Cuentas en cualquier directorio organizativo y cuentas Microsoft personales'.");
+    }
     // consejos concretos por código de error conocido
     const AYUDA = {
-      AADSTS50194: "arregle el registro en Entra ID: su app VIERNES quedó como 'solo cuentas de esta organización'; cámbiela a 'Cuentas en cualquier directorio organizativo y cuentas Microsoft personales' (o re-registre con esa opción) y sigue con el mismo Client ID",
       AADSTS50011: "el URI de redirección no coincide: en Autenticación cree plataforma SPA con EXACTAMENTE " + msRedirectUri() + " (con barra final)",
       AADSTS9002326: "la plataforma quedó registrada como Web; cámbiela a 'Aplicación de una sola página (SPA)'",
       AADSTS7000218: "la plataforma quedó registrada como Web; cámbiela a 'Aplicación de una sola página (SPA)'",
     };
-    const codigo = (detalle.match(/AADSTS\d+/) || [""])[0];
     throw new Error("Microsoft rechazó el acceso: " + error
       + (codigo ? " (" + codigo + ")" : "")
-      + (AYUDA[codigo] ? " — " + AYUDA[codigo] : (detalle && !codigo ? " — " + detalle.slice(0, 160) : "")));
+      + (AYUDA[codigo] ? " — " + AYUDA[codigo] : (detalle ? " — " + detalle.slice(0, 160) : "")));
   }
   if (!code) return false;
   if (state !== esNuestro) {
     history.replaceState(null, "", location.pathname);
     throw new Error("Estado OAuth inválido. Intente de nuevo.");
   }
+  const tenant = sessionStorage.getItem("ms_tenant") || "common";
   const verifier = sessionStorage.getItem("ms_verifier");
   sessionStorage.removeItem("ms_state"); sessionStorage.removeItem("ms_verifier");
   history.replaceState(null, "", location.pathname);
@@ -125,13 +139,14 @@ async function handleCallback() {
     client_id: getClientId(), code, redirect_uri: msRedirectUri(),
     code_verifier: verifier, grant_type: "authorization_code",
   });
-  const r = await fetch(MS_TOKEN, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
+  const r = await fetch(msAuthBase(tenant) + "/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || j.error) throw new Error("Error al obtener token: " + (j.error_description || j.error || "HTTP " + r.status));
   const tokens = {
     access_token: j.access_token,
     refresh_token: j.refresh_token,
     expiry: Date.now() + ((j.expires_in || 3600) * 1000),
+    tenant: tenant,
   };
   // el correo viene dentro del id_token (JWT; payload en el 2.º bloque)
   try {
@@ -162,7 +177,7 @@ async function getValidToken() {
     client_id: getClientId(), grant_type: "refresh_token",
     refresh_token: t.refresh_token, scope: MS_SCOPES,
   });
-  const r = await fetch(MS_TOKEN, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
+  const r = await fetch(msAuthBase(t.tenant) + "/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || j.error) {
     if (j.error === "invalid_grant") clearTokens();
