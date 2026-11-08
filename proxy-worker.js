@@ -108,8 +108,12 @@ function describeRemoto(t, off) {
 /* ── BÚSQUEDA WEB PARA EL CEREBRO (gratuita, sin API key) ──
    El modelo no tiene internet; aquí se lo buscamos: si la pregunta
    pide información (qué/quién/cuándo/cuánto/noticias/precio…), se
-   consulta el motor público de DuckDuckGo (versión HTML) y los
-   primeros resultados se inyectan en el contexto del LLM. */
+   consulta la web. Cadena de respaldo por si una fuente bloquea la
+   salida de Cloudflare (a DuckDuckGo a veces le da por regresar 403
+   a las IPs de datacenter):
+     1) DuckDuckGo HTML  ·  2) DuckDuckGo Lite  ·  3) Wikipedia ES.
+   Si TODO falla, se le avisa al cerebro con una nota interna para que
+   NUNCA prometa que va a buscar; responde con franqueza. */
 const CHARLAPEQUE = /\b(como estas|como te sientes|como te llamas|quien eres|que eres|que hora es|que dia es|hola|buenas tardes|buenas noches|buenos dias|gracias|adios|hasta luego|que tal|que me dices|dime un chiste|eres real|que puedes hacer|que sabes hacer)\b/;
 const PREGUNTAINFO = /\b(que|quien|quienes|cuando|cuanto|cuantos|cual|cuales|donde|como|por que|busca|buscame|noticias|noticia|precio|cuesta|vale|cotizacion|recomienda|hay|existen|que es|quien es|cuando se|como se hace|dime sobre|informacion sobre)\b/;
 function quiereBusqueda(texto) {
@@ -125,18 +129,19 @@ function quitarTags(s) {
     .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ").trim();
 }
-async function buscarWeb(q, max = 5) {
+const UA_BUSQ = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+async function traerTxt(url) {
   const sig = (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(8000) : undefined;
-  const url = "https://html.duckduckgo.com/html/?kl=es-mx&q=" + encodeURIComponent(String(q).slice(0, 240));
   const r = await fetch(url, {
     signal: sig,
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-      "Accept-Language": "es-MX,es;q=0.9",
-    },
+    headers: { "User-Agent": UA_BUSQ, "Accept-Language": "es-MX,es;q=0.9" },
   });
-  if (!r.ok) throw new Error("Busqueda HTTP " + r.status);
-  const html = await r.text();
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.text();
+}
+/* Fuente 1: DuckDuckGo HTML */
+async function buscarDDGHtml(q, max) {
+  const html = await traerTxt("https://html.duckduckgo.com/html/?kl=es-mx&q=" + encodeURIComponent(String(q).slice(0, 240)));
   const titulos = [...html.matchAll(/<a([^>]*class="[^"]*result__a[^"]*"[^>]*)>([\s\S]*?)<\/a>/g)];
   const resumenes = [...html.matchAll(/<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/g)];
   const out = [];
@@ -149,8 +154,59 @@ async function buscarWeb(q, max = 5) {
     if (!titulo) continue;
     out.push({ titulo, snippet: resumenes[i] ? quitarTags(resumenes[i][1]).slice(0, 320) : "", dom });
   }
+  if (!out.length) throw new Error("sin resultados");
   return out;
 }
+/* Fuente 2: DuckDuckGo Lite (Tabla plana; el atributo usa comillas simples) */
+async function buscarDDGLite(q, max) {
+  const html = await traerTxt("https://lite.duckduckgo.com/lite/?q=" + encodeURIComponent(String(q).slice(0, 240)));
+  const links = [...html.matchAll(/<a[^>]+href="[^"]*uddg=([^&"']+)[^"]*"[^>]*>([\s\S]*?)<\/a>/g)];
+  const snips = [...html.matchAll(/<td[^>]+class=["']result-snippet["'][^>]*>([\s\S]*?)<\/td>/g)];
+  const out = [];
+  for (let i = 0; i < links.length && out.length < max; i++) {
+    const dom = decodeURIComponent(links[i][1]).replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+    const titulo = quitarTags(links[i][2]);
+    if (!titulo) continue;
+    out.push({ titulo, snippet: snips[i] ? quitarTags(snips[i][1]).slice(0, 320) : "", dom });
+  }
+  if (!out.length) throw new Error("sin resultados");
+  return out;
+}
+/* Fuente 3: Wikipedia ES — nunca bloquea IPs de datacenter y no requiere clave */
+async function buscarWiki(q, max) {
+  const txt = await traerTxt("https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=" + encodeURIComponent(String(q).slice(0, 240)) + "&format=json&srlimit=" + max);
+  const j = JSON.parse(txt);
+  const out = (((j || {}).query || {}).search || []).map((x) => ({
+    titulo: quitarTags(x.title),
+    snippet: quitarTags(x.snippet || "").slice(0, 320),
+    dom: "es.wikipedia.org",
+  }));
+  if (!out.length) throw new Error("sin resultados");
+  return out;
+}
+/* La cadena: cae a la siguiente fuente si la anterior falla o viene vacía.
+   Devuelto: { items, fuente }. Lanza una sola excepción con la causa de cada fuente. */
+async function buscarWeb(q, max = 5) {
+  const qa = encodeURIComponent(String(q).slice(0, 240));
+  const intentos = [
+    ["ddg-html", () => buscarDDGHtml(q, max)],
+    ["ddg-lite", () => buscarDDGLite(q, max)],
+    ["wikipedia", async () => buscarWiki(decodeURIComponent(qa), max)],
+  ];
+  const fallos = [];
+  for (const [nombre, fn] of intentos) {
+    try {
+      const items = await fn();
+      return { items, fuente: nombre };
+    } catch (e) {
+      fallos.push(nombre + ": " + (e && e.message ? e.message.slice(0, 80) : "error"));
+    }
+  }
+  throw new Error(fallos.join(" | "));
+}
+/* Nota interna que se inyecta al cerebro cuando la web NO está disponible:
+   lo obliga a ser honesto en lugar de prometer que "va a buscar". */
+const NOTA_SIN_WEB = "\n\nNOTA INTERNA (no la mencione textualmente): la búsqueda web no está disponible en este momento. NO diga que va a consultar, buscar ni verificar nada externo; responda con lo que ya sabe y, si la pregunta exige dato fresco, reconozca con franqueza que de momento no puede consultar la web.";
 function contextoBusqueda(res) {
   if (!res || !res.length) return "";
   const d = new Date(Date.now() - 6 * 3600e3).toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric", timeZone: "America/Mexico_City" });
@@ -193,9 +249,15 @@ export default {
       return new Response(JSON.stringify(obj), { status: status || 200, headers: h });
     }
 
-    // ── PING: diagnóstico para el Ajustes de la app ──
+    // ── PING: diagnóstico para el Ajustes de la app. ?web=1 pruebe la búsqueda real ──
     if (url.pathname === "/ping" && request.method === "GET") {
-      return respuesta({ ok: true, kv: !!kv, pin: !!pinSrv }, request.headers.get("Origin") || "*");
+      const out = { ok: true, kv: !!kv, pin: !!pinSrv };
+      if (url.searchParams.get("web") === "1") {
+        out.web = await buscarWeb("precio del dólar hoy en México")
+          .then((b2) => ({ disponible: true, fuente: b2.fuente, resultados: b2.items.length, titulo: b2.items[0] && b2.items[0].titulo }))
+          .catch((e) => ({ disponible: false, error: e.message }));
+      }
+      return respuesta(out, request.headers.get("Origin") || "*");
     }
 
     // ── NOTAS ──
@@ -313,7 +375,14 @@ export default {
       const ctxBit = bit.length ? "INTERCAMBIOS RECIENTES:\n" + bit.map((b) => b.tipo + ": " + b.txt).join("\n") : "";
       let ctxWeb = "";
       if (quiereBusqueda(pregunta)) {
-        try { ctxWeb = contextoBusqueda(await buscarWeb(pregunta)); } catch (e) { await bitacoraAdd("busqueda", "falló: " + e.message); }
+        try {
+          const b2 = await buscarWeb(pregunta);
+          ctxWeb = contextoBusqueda(b2.items);
+          await bitacoraAdd("busqueda", "ok [" + b2.fuente + "]: " + b2.items.length + " resultados");
+        } catch (e) {
+          ctxWeb = NOTA_SIN_WEB; // el cerebro NO promete que va a buscar
+          await bitacoraAdd("busqueda", "falló: " + e.message);
+        }
       }
       const sys = "Eres VIERNES, asistente personal leal y eficiente. Hablas español de México, natural y breve, " +
         "para ser leído en voz alta (1 a 5 frases, sin listas ni emojis). No escribas ningún saludo de tratamiento; " +
@@ -469,8 +538,15 @@ export default {
         const ultima = [...msgs].reverse().find((m) => m && m.role === "user");
         const textoU = ultima && typeof ultima.content === "string" ? ultima.content : "";
         if (textoU && quiereBusqueda(textoU)) {
-          const res = await buscarWeb(textoU);
-          const inj = contextoBusqueda(res);
+          let inj = "";
+          try {
+            const b2 = await buscarWeb(textoU);
+            inj = contextoBusqueda(b2.items);
+            try { await bitacoraAdd("busqueda", "ok [" + b2.fuente + "]: " + b2.items.length + " resultados"); } catch (e2) {}
+          } catch (e) {
+            inj = NOTA_SIN_WEB; // el cerebro NO promete que va a buscar
+            try { await bitacoraAdd("busqueda", "falló: " + e.message); } catch (e2) {}
+          }
           if (inj) {
             const idx = msgs.findIndex((m) => m.role === "system");
             if (idx >= 0) msgs[idx] = { ...msgs[idx], content: (msgs[idx].content || "") + inj };
