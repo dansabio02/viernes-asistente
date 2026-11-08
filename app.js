@@ -1631,14 +1631,14 @@ function brainNetwork() {
   const ctx = cv.getContext("2d"); const W = cv.width, H = cv.height;
   const miGen = ++brainGen; // detiene cualquier bucle anterior sobre el mismo lienzo
   const cx = W / 2, cy = H / 2;
-  const R = Math.min(W, H) * 0.305; // radio general del reactor
+  const R = Math.min(W, H) * 0.325; // radio general del reactor (sin aro externo: llena el escenario)
   const RC = R * 0.30;              // núcleo central
   // En móviles carga liviana: menos marcas y chispas (GPU y batería)
   const MOVIL = Math.min(innerWidth, innerHeight) < 700;
-  const SEG = MOVIL ? 16 : 22;      // segmentos del anillo exterior
-  const MARCAS = MOVIL ? 26 : 40;   // marcas finas del anillo interior
+  const SEG = MOVIL ? 14 : 22;      // segmentos del anillo exterior
+  const MARCAS = MOVIL ? 22 : 40;   // marcas finas del anillo interior
   const BOBINAS = 12;               // bobinas radiales del reactor (perfil Mark 50)
-  const CHISPAS = MOVIL ? 5 : 8;    // pulsos viajeros por carril
+  const CHISPAS = MOVIL ? 4 : 8;    // pulsos viajeros por carril
 
   // Halo pre-renderizado (sprite): evita crear gradientes en cada cuadro (costoso en móvil)
   const crearSprite = (c) => {
@@ -1661,12 +1661,20 @@ function brainNetwork() {
     carril: i % 2,
   }));
 
+  let ultimoCuadro = 0; // para la cadencia de reposo (batería)
+
   function draw(t) {
     if (miGen !== brainGen) return; // un reactor nuevo tomó el lienzo
     t = t || 0;
-    ctx.clearRect(0, 0, W, H);
+    requestAnimationFrame(draw);
+    if (document.hidden) return;    // pestaña oculta: cero gasto (rAF ya frena, se refuerza)
     const st = document.body.getAttribute("data-state") || "standby";
     const activo = st !== "standby";
+    // OPTIMIZACIÓN TELÉFONO: en reposo no hace falta 60 cuadros/s — basta ~18,
+    // y en operación se va a plenos. Ahorra la tercera parte de GPU sin verse.
+    if (!activo && t - ultimoCuadro < 55) return;
+    ultimoCuadro = t;
+    ctx.clearRect(0, 0, W, H);
     const col = st === "speaking" ? [255, 179, 0] : [62, 155, 255]; // Endgame: azul eléctrico profundo
     const g = activo ? 1 : 0.42;
     const C = (a) => `rgba(${col[0]},${col[1]},${col[2]},${a})`;
@@ -1747,8 +1755,6 @@ function brainNetwork() {
     ctx.beginPath(); ctx.arc(cx, cy, rp, 0, TAU); ctx.fill();
     ctx.fillStyle = `rgba(255,255,255,${activo ? 0.9 : 0.45})`;
     ctx.beginPath(); ctx.arc(cx, cy, rp * 0.62, 0, TAU); ctx.fill(); // cuerpo blanco dominante (Endgame)
-
-    requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
 }

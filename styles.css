@@ -83,17 +83,12 @@ body[data-state="speaking"] .status-pill{color:var(--amber);border-color:rgba(25
 .stage{flex:none;display:flex;flex-direction:column;align-items:center;padding:10px 12px 4px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(5,10,20,.5),transparent)}
 .orb-stage{position:relative;width:min(100%,470px);aspect-ratio:720/460;transition:filter .4s}
 #brainCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:2}
-.orb-halo{position:absolute;inset:-6%;z-index:0;background:radial-gradient(48% 44% at 50% 50%,rgba(62,155,255,.16),transparent 70%);filter:blur(6px);animation:breathe 5s ease-in-out infinite}
-.orb-ring{position:absolute;z-index:3;border-radius:50%;pointer-events:none}
-.ring-outer{inset:4% 9%;border:1px dashed rgba(62,155,255,.30);animation:giroReactor 48s linear infinite}
-/* Rotación lenta del marco del reactor (acento giratorio del conjunto) */
-@keyframes giroReactor{to{transform:rotate(360deg)}}
+.orb-halo{position:absolute;inset:-6%;z-index:0;background:radial-gradient(48% 44% at 50% 50%,rgba(62,155,255,.16),transparent 70%);filter:blur(4px);animation:breathe 6s ease-in-out infinite}
+/* Rotación del marco retirada: ahora el reactor es la única figura del escenario */
 body[data-state="listening"] .orb-stage{filter:saturate(1.25) brightness(1.08)}
 body[data-state="listening"] .orb-halo{background:radial-gradient(50% 46% at 50% 50%,rgba(62,155,255,.30),transparent 70%)}
-body[data-state="listening"] .ring-outer{border-color:rgba(62,155,255,.60);box-shadow:0 0 22px rgba(62,155,255,.16),inset 0 0 22px rgba(62,155,255,.08)}
 body[data-state="speaking"] .orb-stage{filter:saturate(1.1) brightness(1.05)}
 body[data-state="speaking"] .orb-halo{background:radial-gradient(50% 46% at 50% 50%,rgba(255,179,0,.16),transparent 70%)}
-body[data-state="speaking"] .ring-outer{border-color:rgba(255,179,0,.5)}
 
 .orb-sub{font-family:'Share Tech Mono',monospace;font-size:.6rem;letter-spacing:.3em;color:var(--muted);margin-top:6px;text-align:center;transition:color .3s;text-shadow:0 0 12px currentColor}
 body[data-state="listening"] .orb-sub{color:var(--accent)}
@@ -280,6 +275,10 @@ input[type="range"]{width:100%;height:34px;accent-color:var(--accent-2);backgrou
 /* ── Animaciones ── */
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
 @keyframes breathe{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.035);opacity:1}}
+/* Batería: el halo respira solo en pantallas grandes; en móvil y con
+   "reducir movimiento" del sistema queda estático (el reactor, que SÍ
+   gira, vive dentro del canvas con su propia cadencia barata) */
+@media (max-width:899px),(prefers-reduced-motion:reduce){.orb-halo{animation:none}}
 @keyframes halopulse{0%,100%{opacity:.5}50%{opacity:1}}
 @keyframes micpulse{0%{transform:scale(1);opacity:.7}100%{transform:scale(1.35);opacity:0}}
 @keyframes scan{0%{top:0}100%{top:100%}}
