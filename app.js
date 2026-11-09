@@ -837,6 +837,7 @@ async function sincronizarPendientes(silencioso) {
       // Si el evento venció mientras la app estaba cerrada y es puntual, se avisa igualmente por bitácora; aquí solo vivos
       if (!it.rep && it.t < Date.now()) continue;
       recordatorios.push({ id: it.id || (Date.now().toString(36) + Math.random().toString(36).slice(2, 5)), tipo: it.tipo === "alarma" ? "alarma" : "recordatorio", txt: it.txt || "", t: it.t, rep: it.rep || null, hecho: false });
+      if (Mi) Mi.almacenar("recordatorio", it.txt || "despertar", { cuando: it.t, tipo: it.tipo, rep: it.rep || null, origen: "atajo" });
       n++;
     }
     if (n) {
@@ -860,6 +861,7 @@ async function comandoNota(texto) {
     const cuerpo = m[1].trim().replace(/[.]$/, "");
     if (!cuerpo) return null;
     await guardarNota(cuerpo);
+    if (Mi) Mi.almacenar("nota", cuerpo);
     const pend = colaNotas.length;
     const nf = new Date().toLocaleDateString("es-MX", { day: "numeric", month: "short" });
     return tratoInicio() + ", anotado el " + nf + ": " + cuerpo.replace(/^./, (c) => c.toLowerCase()) +
@@ -892,6 +894,61 @@ function j_ultimoEvento() {
   return "al día y al tanto, " + (historial.length ? "con los últimos intercambios en mi memoria." : "sin eventos pendientes.");
 }
 
+/* ==== MEMORIA EN BASE DE DATOS ====
+   Todo lo importante queda grabado en la base (teléfono + nube):
+   notas («apunta…»), recordatorios creados, lo que usted le dijo
+   (mensajes) y lo aprendido. Y se trae por voz: «¿qué dijiste sobre
+   la junta?», «busca en tu memoria factura», «¿cuánto sabes?»,
+   «olvida la nota de X». Sin internet usa el teléfono y entrega lo
+   que ya guarda; al volver, sincroniza sola. */
+const Mi = window.ViernesMemoria || null;
+function memoriaFecha(t) {
+  const d = new Date(Number(t) || Date.now());
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const d0 = new Date(d.getTime()); d0.setHours(0, 0, 0, 0);
+  const dif = Math.round((d0.getTime() - hoy.getTime()) / 864e5);
+  const dia = dif === 0 ? "hoy" : dif === -1 ? "ayer" : d.toLocaleDateString("es-MX", { day: "numeric", month: "short" });
+  return dia + ", " + d.toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" });
+}
+const MEM_TIPOS = ["nota", "recordatorio", "mensaje", "aprendido"];
+async function comandoMemoria(texto) {
+  if (!Mi) return null;
+  const n = normalizar(texto);
+  // CONTAR / REPASAR la base
+  if (/^(qué tienes en (?:tu )?memoria|que tienes en (?:tu )?memoria|cu[áa]nto sabes|cuanto sabes|repasa (?:tu )?memoria|dime (?:tu )?memoria|cu[áa]ntas cosas sabes|c[óo]mo va tu memoria)\b/.test(n)) {
+    const c = await Mi.cuentas();
+    if (!c.total) return tratoInicio() + ", mi base de memoria está vacía todavía. Diga «apunta que» y lo que deba recordar.";
+    const partes = Object.entries(c.tipos || {}).filter(([, v]) => v > 0)
+      .map(([k, v]) => v + (k === "nota" ? " nota" + (v === 1 ? "" : "s") : k === "recordatorio" ? " recordatorio" + (v === 1 ? "" : "s") : k === "mensaje" ? " mensaje" + (v === 1 ? "" : "s") : " aprendizaje" + (v === 1 ? "" : "s")));
+    const ult = (await Mi.ultimos({ limit: 5 })).map((it, i) => (i + 1) + ": " + it.texto.slice(0, 60) + ", del " + memoriaFecha(it.t));
+    return tratoInicio() + ", guardo " + c.total + (c.total === 1 ? " memoria" : " memorias") + (partes.length ? " (" + partes.join(", ") + ")" : "") + ". Lo más reciente: " + ult.join("; ") + ".";
+  }
+  // BUSCAR por tema
+  let m = texto.match(/^(?:qué dijiste|que dijiste|qué te dije|que te dije|qué hablamos|que hablamos|qué anotaste|que anotaste|qué guardaste|que guardaste|busca (?:en )?(?:tu )?memoria|búscame en (?:tu )?memoria|buscame en (?:tu )?memoria|busca en tu base|encuentra en tu memoria)(?:\s+(?:sobre|de|del|de la|de los|de las|de mi|acerca de))?\s+(.+)/i);
+  if (!m) m = texto.match(/^mis (?:notas|apuntes|recordatorios|mensajes|aprendizajes)(?:\s+(?:sobre|de|del|de la|de los|de las))?\s+(.+)/i);
+  if (m) {
+    const q = m[1].trim().replace(/[??.¡!]+$/, "");
+    if (q && q.length > 2) {
+      const hits = await Mi.buscar(q, { limit: 8 });
+      if (!hits.length) return tratoInicio() + ", no conservo nada sobre " + q.charAt(0).toLowerCase() + q.slice(1) + " en la base. Diga «apunta que» si lo quiere apuntado desde ahora.";
+      const txt = hits.slice(0, 4).map((it) => (it.tipo === "recordatorio" ? "pendiente" : it.tipo === "mensaje" ? "me dijo" : it.tipo === "nota" ? "nota" : "aprendido") + " del " + memoriaFecha(it.t) + ": " + (it.texto.slice(0, 70)));
+      return tratoInicio() + ", conservo " + hits.length + (hits.length === 1 ? " cosa" : " cosas") + " sobre eso: " + txt.join("; ") + ".";
+    }
+  }
+  // OLVIDAR algo concreto
+  const mB = texto.match(/^(?:olvida|borra|elimina|cancela)\w*\s+(?:en la base\s+|en tu memoria\s+|de tu memoria\s+)?(?:la\s+|el\s+)?(?:nota|mensaje|recordatorio|recuerdo|aprendizaje|lo)\s+(?:que|sobre|de|lo de|de la|del)?\s*(.+)/i);
+  if (mB) {
+    const q = mB[1].trim().replace(/[.!?]+$/, "");
+    if (q.length > 2) {
+      const hits = await Mi.buscar(q, { limit: 5 });
+      if (!hits.length) return tratoInicio() + ", no encuentro eso en mi base. Diga «qué tienes en tu memoria» y lo repaso.";
+      for (const it of hits) await Mi.borrar(it.id);
+      return tratoInicio() + ", borrado" + (hits.length === 1 ? "" : "s") + " de la base: " + hits.map((h) => h.texto.slice(0, 60)).join("; ") + ".";
+    }
+  }
+  return null;
+}
+
 /* ==== APRENDIZAJE Y MEMORIA DE LARGO PLAZO ====
    Dos caminos:
    1) Directo por voz: «aprende que…», «memoriza que…», «recuerda siempre…».
@@ -918,6 +975,7 @@ async function comandoAprender(texto) {
     if (dup) { dup.t = Date.now(); guardarAprendizajes(); return tratoInicio() + ", ya lo tenía y le quedó grabado: " + dup.txt + "."; }
     aprendizajes.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), t: Date.now(), txt: cuerpo.charAt(0).toLowerCase() + cuerpo.slice(1) });
     guardarAprendizajes();
+    if (Mi) Mi.almacenar("aprendido", cuerpo.charAt(0).toLowerCase() + cuerpo.slice(1), { origen: "aprender" });
     return tratoInicio() + ", aprendido y grabado a memoria: " + cuerpo.charAt(0).toLowerCase() + cuerpo.slice(1) + ". No tendrá que repetirlo.";
   }
   // LISTAR
@@ -971,6 +1029,7 @@ function destilarAprendizajes() {
       if (t.length < 10 || t.length > 240) continue;
       if (aprendizajes.some((a) => textoSimilar(a.txt, t))) continue;
       aprendizajes.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), t: Date.now(), txt: t });
+      if (Mi) Mi.almacenar("aprendido", t, { origen: "destilacion" });
       added++;
       // Trato que aprende solo: si el hecho destila preferencia de cómo hablarle, se aplica al momento
       const mx = t.match(/(.{0,45}?)\b(?:digas?|digamos|digan|ll[aá]mame)\b[^.]{0,40}?\b(señor daniel|señor|jefe|don daniel|patrón|patron)\b/i);
@@ -1107,6 +1166,7 @@ async function comandoRecordatorio(texto) {
   const drv = esAlarma ? "alarma" : "recordatorio";
   const r2 = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), tipo: drv, txt: cuerpo || (drv === "alarma" ? "" : ""), t: cuando.t, rep: cuando.rep, hecho: false };
   recordatorios.push(r2); guardarRecordatorios();
+  if (Mi) Mi.almacenar("recordatorio", r2.txt || "despertar", { cuando: r2.t, tipo: r2.tipo, rep: r2.rep || null });
   const nombre = drv === "alarma" ? "Alarma" : "Recordatorio";
   const conRep = r2.rep === "daily" ? ", se repite todas las mañanas" : "";
   return tratoInicio() + (cuerpo ? ", " + nombre.toLowerCase() + " de " + cuerpo : ", " + nombre.toLowerCase() + " puesta") + " para " + descripcionCuando(r2.t) + conRep + ".";
@@ -1218,6 +1278,7 @@ async function comandoAgenda(texto) {
       log("Evento creado (" + (destino === window.ViernesOutlook ? "Outlook" : "Google") + "): " + ev.id, "ok");
       // Recordatorio local 10 minutos antes (sirve con la página abierta)
       recordatorios.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), tipo: "recordatorio", txt: "Evento: " + titulo, t: cuando.t - 10 * 60e3, hecho: false });
+      if (Mi) Mi.almacenar("recordatorio", "Evento: " + titulo, { cuando: cuando.t - 10 * 60e3, tipo: "recordatorio", rep: null, origen: "agenda" });
       guardarRecordatorios();
       return tratoInicio() + ", evento «" + titulo + "» agendado para " + descripcionCuando(cuando.t) + ", con aviso 10 minutos antes.";
     } catch (e) {
@@ -1563,6 +1624,8 @@ async function enviarTexto(texto) {
     if (!resp && !contextoImagen) { try { resp = await comandoAprender(texto); } catch (e) { log("Aprendizaje: " + e.message, "warn"); } }
     // Memoria: apuntar, leer notas, borrar, sincronizar bitácora
     if (!resp && !contextoImagen) { try { resp = await comandoNota(texto); } catch (e) { log("Notas: " + e.message, "error"); } }
+    // Memoria en base de datos: buscar lo guardado, contarla, olvidar algo
+    if (!resp && !contextoImagen) { try { resp = await comandoMemoria(texto); } catch (e) { log("Memoria: " + e.message, "warn"); } }
     // Agenda del calendario y recordatorios/alarmas por voz
     if (!resp && !contextoImagen) { try { resp = await comandoAgenda(texto); } catch (e) { log("Agenda: " + e.message, "warn"); } }
     if (!resp && !contextoImagen) { try { resp = await comandoRecordatorio(texto); } catch (e) { log("Recordatorios: " + e.message, "warn"); } }
@@ -1584,6 +1647,8 @@ async function enviarTexto(texto) {
     }
     // Naturalidad: en confirmaciones breves, a veces el trato sobra
     resp = pulirTrato(resp);
+    // La base de memoria recibe cada frase suya (de más de 15 letras)
+    if (Mi && texto && texto.length >= 15 && !contextoImagen) Mi.almacenar("mensaje", texto);
     historial.push({ role: "user", content: texto || "[imagen]" }); historial.push({ role: "assistant", content: resp });
     if (cfg.memory) { try { localStorage.setItem("viernes_hist", JSON.stringify(historial.slice(-30))); } catch (e) {} }
     $("tLatency").textContent = (Date.now() - t0) + " ms";
@@ -1953,6 +2018,8 @@ function init() {
   try { historial = JSON.parse(localStorage.getItem("viernes_hist") || "[]"); } catch (e) {}
   starfield(); brainNetwork(); actualizarReloj(); setInterval(actualizarReloj, 1000);
   aplicarUI(); bindAjustes(); initEagleUI(); initMailUI(); initOutlookUI();
+  // Base de memoria: local + espejo en la nube (sin pedir PIN aquí; el canal solo se usa si ya existe)
+  if (Mi) { Mi.inicializar(); Mi.configurar((ruta) => { if (!pinNotas) throw new Error("sin pin"); return apiMemoria(ruta); }); }
   // Memoria del servidor: subir notas pendientes y leer la bitácora de su ausencia
   if (pinNotas) { subirColaNotas().then((n) => { if (n) log("Notas pendientes subidas: " + n, "ok"); }); }
   setTimeout(() => sincronizarBitacora(false), 2500); // deja respirar el arranque

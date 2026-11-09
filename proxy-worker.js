@@ -15,7 +15,12 @@
 //    Create namespace "viernes-datos" → luego en el Worker: Settings →
 //    Bindings → KV namespace → Variable name: VIERNES_KV, namespace: viernes-datos.
 //    Sin el KV, el worker funciona pero las notas no sobreviven al reinicio.
-// 7. Si aparece "unpublished changes" → Deploy otra vez.
+// 7. BASE DE DATOS DE MEMORIA (recommended): dash.cloudflare.com →
+//    Storage & Databases → D1 → Create database "viernes-memoria" →
+//    en el Worker: Settings → Bindings → D1 database → Variable name:
+//    VIERNES_D1, database: viernes-memoria. Importante: mantener la app
+//    en la misma cuenta y pulsar Deploy después.
+// 8. Si aparece "unpublished changes" → Deploy otra vez.
 //
 // ENDPOINTS:
 //   POST /              → proxy a Groq (GROQ_API_KEY del entorno)
@@ -37,6 +42,12 @@
 //   GET  /pend?pin=   → descarga y VACÍA la cola de recordatorios creados
 //        por atajo (los recoge la app al abrir). Cada movimiento queda en bitácora.
 //   GET  /log?pin=&desde=…   → bitácora (apunta todo lo ocurrido fuera de casa)
+//   POST /mem        {id?,t?,tipo,texto,meta} → guardar memoria (nota/recordatorio/mensaje/aprendido)
+//   GET  /mem        ?tipos=nota,recordatorio&limit=12 → últimas memorias
+//   POST /mem/buscar {q, tipos?, limit?} → buscar por palabras
+//   DELETE /mem?id=…  →borrar una memoria
+//   POST /mem/vaciar  {confirmar:"si"} → borrar TODO (con PIN)
+//   GET  /mem/estado  → qué motor hay (D1 o KV) y contaduras
 
 const TRATOS = ["Señor", "Señor Daniel", "Jefe"];
 const DIAS = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"]; // para mostrar (domingo=0)
@@ -251,7 +262,7 @@ export default {
 
     // ── PING: diagnóstico para el Ajustes de la app. ?web=1 pruebe la búsqueda real ──
     if (url.pathname === "/ping" && request.method === "GET") {
-      const out = { ok: true, kv: !!kv, pin: !!pinSrv };
+      const out = { ok: true, kv: !!kv, pin: !!pinSrv, mem: (env && env.VIERNES_D1) ? "d1" : "kv" };
       if (url.searchParams.get("web") === "1") {
         out.web = await buscarWeb("precio del dólar hoy en México")
           .then((b2) => ({ disponible: true, fuente: b2.fuente, resultados: b2.items.length, titulo: b2.items[0] && b2.items[0].titulo }))
@@ -291,6 +302,129 @@ export default {
       if (pedir(url, request) !== pinSrv) return respuesta({ error: "PIN incorrecto" }, "*", 403);
       const notas = await leerClave(K.notas, []);
       return respuesta({ ok: true, notas }, request.headers.get("Origin") || "*");
+    }
+
+    // ── MEMORIA (base de datos): notas, recordatorios, mensajes, aprendizajes.
+    //      Motor preferente: D1 (SQL). Si no hay binding, usa el KV ya configurado. ──
+    const DBd1 = (env && env.VIERNES_D1) || null;
+    const KMEM = "viernes:memoria";
+    function plegarSrv(s) { return String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""); }
+    async function memInit() {
+      if (DBd1) {
+        try {
+          await DBd1.prepare("CREATE TABLE IF NOT EXISTS memoria (id TEXT PRIMARY KEY, t INTEGER, tipo TEXT, texto TEXT, meta TEXT)").run();
+          return "d1";
+        } catch (e) { return "d1-error"; }
+      }
+      return "kv";
+    }
+    async function memInsertar(item) {
+      if (DBd1) {
+        await DBd1.prepare("INSERT OR REPLACE INTO memoria (id,t,tipo,texto,meta) VALUES (?,?,?,?,?)")
+          .bind(item.id, item.t || Date.now(), item.tipo || "nota", item.texto || "", item.meta == null ? "" : JSON.stringify(item.meta)).run();
+        return;
+      }
+      const l = await leerClave(KMEM, []);
+      l.push({ id: item.id, t: item.t || Date.now(), tipo: item.tipo || "nota", texto: item.texto || "", meta: item.meta == null ? "" : JSON.stringify(item.meta) });
+      await guardarClave(KMEM, l.slice(-2000));
+    }
+    async function memListar(tipos, limit) {
+      if (DBd1) {
+        let sql = "SELECT id,t,tipo,texto,meta FROM memoria", ps = [];
+        if (tipos && tipos.length) { sql += " WHERE tipo IN (" + tipos.map(() => "?").join(",") + ")"; ps.push(...tipos); }
+        sql += " ORDER BY t DESC LIMIT " + Math.max(1, Math.min(200, limit || 12));
+        const j = await DBd1.prepare(sql).bind(...ps).all();
+        return (j && j.results) || [];
+      }
+      let l = await leerClave(KMEM, []);
+      if (tipos && tipos.length) l = l.filter((x) => tipos.includes(x.tipo));
+      l.sort((a, b) => (b.t || 0) - (a.t || 0));
+      return l.slice(0, Math.max(1, Math.min(200, limit || 12)));
+    }
+    async function memBuscar(q2, tipos, limit) {
+      const palabras = plegarSrv(q2).split(/[^a-z0-9]+/).filter((p) => p.length > 2);
+      const limit2 = Math.max(1, Math.min(50, limit || 12));
+      if (DBd1) {
+        const conds = [], ps = [];
+        if (tipos && tipos.length) { conds.push("tipo IN (" + tipos.map(() => "?").join(",") + ")"); ps.push(...tipos); }
+        for (const w of palabras) { conds.push("LOWER(texto) LIKE ?"); ps.push("%" + w + "%"); }
+        const sql = "SELECT id,t,tipo,texto,meta FROM memoria" + (conds.length ? " WHERE " + conds.join(" AND ") : "") + " ORDER BY t DESC LIMIT " + limit2;
+        const j = await DBd1.prepare(sql).bind(...ps).all();
+        return (j && j.results) || [];
+      }
+      let l = await leerClave(KMEM, []);
+      if (tipos && tipos.length) l = l.filter((x) => tipos.includes(x.tipo));
+      if (palabras.length) l = l.filter((x) => { const b = plegarSrv(x.texto); return palabras.every((w) => b.includes(w)); });
+      l.sort((a, b) => (b.t || 0) - (a.t || 0));
+      return l.slice(0, limit2);
+    }
+    async function memEstado() {
+      const motor = await memInit();
+      let total = 0; const tipos = {};
+      if (DBd1) {
+        try {
+          const j = await DBd1.prepare("SELECT tipo, COUNT(*) AS n FROM memoria GROUP BY tipo").all();
+          for (const r2 of (j && j.results) || []) { tipos[r2.tipo] = r2.n; total += r2.n; }
+        } catch (e) {}
+      } else {
+        const l = await leerClave(KMEM, []);
+        for (const x of l) { tipos[x.tipo] = (tipos[x.tipo] || 0) + 1; }
+        total = l.length;
+      }
+      return { motor, total, tipos };
+    }
+    if (url.pathname === "/mem" || url.pathname.indexOf("/mem/") === 0) {
+      if (!pinSrv) return respuesta({ error: "Configure VIERNES_PIN en el worker" }, "*", 500);
+      if (pedir(url, request) !== pinSrv) return respuesta({ error: "PIN incorrecto" }, "*", 403);
+      const orig = request.headers.get("Origin") || "*";
+      try {
+        if (request.method === "POST" && url.pathname === "/mem") {
+          const b = await request.json().catch(() => null);
+          const texto = ((b && b.texto) || "").trim();
+          if (!texto) return respuesta({ ok: false, error: "Falta texto" }, orig, 400);
+          const item = {
+            id: (b.id || Date.now().toString(36) + Math.random().toString(36).slice(2, 7)).slice(0, 40),
+            t: Number(b.t) || Date.now(),
+            tipo: String(b.tipo || "nota").slice(0, 30),
+            texto: texto.slice(0, 6000),
+            meta: b.meta || null,
+          };
+          await memInsertar(item);
+          try { await bitacoraAdd("memoria", item.tipo + ": " + item.texto.slice(0, 90)); } catch (e2) {}
+          return respuesta({ ok: true, id: item.id }, orig);
+        }
+        if (request.method === "GET" && url.pathname === "/mem") {
+          const tipos = (url.searchParams.get("tipos") || "").split(",").map((t) => t.trim()).filter(Boolean);
+          const items = await memListar(tipos.length ? tipos : null, Number(url.searchParams.get("limit")) || 12);
+          return respuesta({ ok: true, items }, orig);
+        }
+        if (request.method === "POST" && url.pathname === "/mem/buscar") {
+          const b = await request.json().catch(() => ({}));
+          const tipos = Array.isArray(b.tipos) ? b.tipos : null;
+          const items = await memBuscar(b.q || "", tipos, Number(b.limit) || 12);
+          return respuesta({ ok: true, items }, orig);
+        }
+        if (request.method === "DELETE" && url.pathname === "/mem") {
+          const id = url.searchParams.get("id") || "";
+          if (!id) return respuesta({ ok: false, error: "Falta id" }, orig, 400);
+          if (DBd1) await DBd1.prepare("DELETE FROM memoria WHERE id = ?").bind(id).run();
+          else await guardarClave(KMEM, (await leerClave(KMEM, [])).filter((x) => x.id !== id));
+          return respuesta({ ok: true }, orig);
+        }
+        if (request.method === "POST" && url.pathname === "/mem/vaciar") {
+          if (DBd1) await DBd1.prepare("DELETE FROM memoria").run();
+          else await guardarClave(KMEM, []);
+          try { await bitacoraAdd("memoria", "vaciar: el jefe vació toda su base de datos"); } catch (e2) {}
+          return respuesta({ ok: true }, orig);
+        }
+        if (request.method === "GET" && url.pathname === "/mem/estado") {
+          const est = await memEstado();
+          return respuesta({ ok: true, ...est }, orig);
+        }
+        return respuesta({ ok: false, error: "Ruta /mem no reconocida" }, orig, 404);
+      } catch (e) {
+        return respuesta({ ok: false, error: String((e && e.message) || e).slice(0, 140) }, orig, 500);
+      }
     }
 
     // ── PEND: cola de recordatorios/alarmas creados por atajo. La app los
@@ -577,7 +711,7 @@ function cors(origin, allow) {
   const h = new Headers();
   if (allow) {
     h.set("Access-Control-Allow-Origin", origin || "*");
-    h.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+    h.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     h.set("Access-Control-Allow-Headers", "authorization, content-type");
     h.set("Access-Control-Max-Age", "86400");
   }
