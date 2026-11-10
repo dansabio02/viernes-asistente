@@ -20,6 +20,11 @@ let recognition = null, listening = false, speaking = false, busy = false;
 let ultimoTranscript = "", ultimoTranscriptTime = 0, finHablaTime = 0, audioActual = null, pendientePeticion = 0;
 let hablarGen = 0, bufferFin = "", bufferTimer = null, textoEnCurso = "", bufferConf = 0, bufferConfN = 0;
 let confHist = []; // confianza de frases procesadas: si el motor es de por sí impreciso, la puerta se desactiva sola
+/* Oído frontal (escucha.js): replica en software la cadena del Echo
+   (AEC + NS + AGC + piso adaptativo + espectro de voz + variabilidad
+   silábica). Se usa para aceptar SOLO voz humana real frente al
+   micrófono y dejar fuera TV, máquinas, golpes y eco propio. */
+const VE = window.ViernesEscucha || null;
 function confSana(conf) {
   confHist.push(conf); if (confHist.length > 20) confHist.shift();
   if (confHist.length < 4) return true;
@@ -272,6 +277,8 @@ function setEstado(e) {
   if (sub) sub.textContent = e === "listening" ? "MICRÓFONO ACTIVO" : e === "speaking" ? "RESPONDIENDO…" : "SISTEMA EN ESPERA";
   if (orb) orb.classList.toggle("active", e !== "standby");
   const btn = $("btnStop"); if (btn) btn.disabled = e !== "speaking";
+  // Eco propio: mientras VIERNES habla el oído no contará esos marcos como voz externa
+  if (VE) VE.escucharMudo(e === "speaking");
 }
 
 function actualizarReloj() {
@@ -397,6 +404,10 @@ async function activarMicrofono() {
   $("powerLabel").textContent = "ACTIVO";
   log("Escucha activa. Di «Viernes»…", "ok");
   pedirCandado();
+  // Oído frontal: línea de audio con AEC+NS+AGC para vigilar la habitación
+  if (VE) {
+    VE.abrir().then((ok) => { if (ok) log("Oído frontal activo (cancelación de eco + filtros de ruido)", "ok"); }).catch((e) => { log("Oído frontal no disponible: " + e.message, "warn"); });
+  }
   if (!ubicacionActual || Date.now() - ubicacionActual.t > 6 * 3600 * 1000) {
     actualizarUbicacion().then(u => log("Ubicación: " + u.nombre, "ok")).catch(e => log("Ubicación: " + e.message, "warn"));
   }
@@ -409,6 +420,7 @@ function desactivarMicrofono() {
   $("powerLabel").textContent = "ACTIVAR";
   log("Escucha desactivada", "warn");
   soltarCandado();
+  if (VE) VE.cerrar(); // libera la línea de audio del oído frontal
 }
 let ultimaRespuesta = 0;
 // Bloqueo por frase secreta: solo responde si dice la frase (o ya está desbloqueado)
@@ -427,20 +439,51 @@ function verificarPassphrase(cmd) {
   return false; // bloqueado
 }
 
+/* ── COMPUERTA ACÚSTICA con degradación segura ──
+   Si el oído frontal rechaza 5 frases seguidas (micrófono atenuado
+   o caso extraño), se suspende 3 minutos para no quedar sordo. */
+let escuchaRechazos = 0, escuchaGateHasta = 0;
+function compuertaVoz() {
+  if (!VE || !VE.abierta) return true; // sin oído: degrada silenciosa
+  if (Date.now() < escuchaGateHasta) return true; // ya suspendida
+  if (VE.vozReciente(2400)) { escuchaRechazos = 0; return true; }
+  escuchaRechazos++;
+  if (escuchaRechazos >= 5) {
+    escuchaRechazos = 0;
+    escuchaGateHasta = Date.now() + 180000;
+    log("Oído frontal cerrado 5 frases seguidas: lo pauso 3 min de seguridad (micrófono posiblemente callado)", "warn");
+  }
+  return false;
+}
+
 function procesarVoz(texto) {
   // Guardas: Viernes está hablando o acaba de hablar (eco del altavoz del teléfono).
   // busy (pensando) NO bloquea: si Chrome parte la frase, el resto llega mientras piensa.
   if (speaking) return;
   if (Date.now() - finHablaTime < 700) return;
   const n = texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+
+  // ── COMPUERTA ACÚSTICA (oído frontal) ──
+  // Solo se acepta lo que el oído frontal clasifique como voz HUMANA
+  // sostenida frente al micrófono: la TV, máquinas, portazos, copas y el
+  // eco del altavoz quedan fuera, igual que en el Echo. Si el oído no
+  // pudo abrirse (permiso/caso raro), la compuerta degrada silenciosa.
+  if (!compuertaVoz()) {
+    log("Escucha: descartado «" + String(texto).slice(0, 44) + "» — no era voz humana frente al mic", "warn");
+    return;
+  }
+
   const w = cfg.wakeWords.split(",").map(s => s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""));
-  const tieneWake = w.some(k => n.includes(k));
+  // Despertar estricto: la palabra debe ABRIR la frase (tolera UNA palabra
+  // de cortesía antes) y se reconocen variantes fonéticas del micrófono.
+  // Un «…el viernes vamos…» en medio NO despierta a VIERNES.
+  const wake = extraerDespertar(texto, n, w);
+  const palabras = n.split(/\s+/).filter(Boolean);
   if (Date.now() - ultimaRespuesta < cfg.followUp * 1000) { enviarTexto(texto); return; }
-  if (tieneWake) {
-    let cmd = texto;
-    for (const k of w) { const idx = n.indexOf(k); if (idx >= 0) { cmd = texto.slice(idx + k.length).trim(); break; } }
+  if (wake) {
+    let cmd = wake.cmd;
     if (!cmd) {
-      // Dijo solo la palabra de activación: esperar la petición que llega separada
+      // Dijo solo la palabra de activación (con o sin cortesía antes): esperar la petición
       pendientePeticion = Date.now();
       setEstado("listening"); toast("¿Sí? Diga su petición"); return;
     }
@@ -453,7 +496,13 @@ function procesarVoz(texto) {
     }
     enviarTexto(cmd);
   } else if (cfg.handsFree) {
-    // ESCUCHA CONTINUA (config. por defecto): procesar todo lo que se diga, sin «Viernes»
+    // ESCUCHA CONTINUA (config. por defecto): procesar todo lo que se diga,
+    // sin «Viernes» — pero NO los blips: una sola palabra corta suele ser
+    // un sonido mal transcrito (portazo, golpe, copa), no una petición.
+    if (palabras.length < 2 && n.replace(/\s/g, "").length < 8) {
+      log("Escucha: blip descartado («" + n + "»)", "warn");
+      return;
+    }
     if (!verificarPassphrase(texto)) { setEstado("listening"); toast("🔒 Bloqueado. Diga la frase de acceso."); return; }
     enviarTexto(texto);
   } else if (Date.now() - pendientePeticion < 12000) {
@@ -461,6 +510,33 @@ function procesarVoz(texto) {
     pendientePeticion = 0;
     enviarTexto(texto);
   }
+}
+
+/* EXTRACCIÓN ESTRICTA DE LA PALABRA DE DESPERTAR (a lo Echo: «Alexa»
+   abre la frase). La voz a veces la escribe rara (sin acentos, con
+   b/v cambiada); se aceptan variantes fonéticas. Devuelve {cmd} con
+   lo que siga después, o null si no despertó. */
+function extraerDespertar(texto, n, lista) {
+  const variantesDe = (k) => {
+    if (k === "viernes") return ["viernes", "biernes", "bierne", "birne", "virne", "vierne", "viern", "vierns"];
+    return [k];
+  };
+  const cortesias = "(?:\\s*(?:oye\\b|hey\\b|h[eé]y\\b|eh\\b|bien\\b|bueno\\b|buena\\b|buenas\\b|hola\\b|disculpa\\b|perd[oó]n\\w*\\b|jefe\\b|daniel\\b|se[nñ]or\\b|oks?\\b|mmm+\\b)\\s*)?";
+  for (const k of lista) {
+    for (const v of variantesDe(k)) {
+      const m = new RegExp("^" + cortesias + v + "\\b", "i").exec(n);
+      if (m) {
+        const cort = m[0].length; // incluye la palabra de cortesía si la hubo
+        let cmd;
+        if (cort <= texto.length) cmd = texto.slice(cort).trim();
+        else cmd = n.slice(cort).trim(); // por si el texto y el normalizado difieren en largo
+        // Devuelve el comando después del despertar; "" = dijo solo la palabra
+        cmd = cmd.replace(/^(?:,\s*|,\s*)/, "");
+        return { cmd };
+      }
+    }
+  }
+  return null;
 }
 
 /* ==== TTS ==== */
