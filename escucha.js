@@ -53,6 +53,8 @@ let frames = [];   // {t, db, snr, band, vari, score, voz}
 let tsVoz = [];    // timestamp de voz HUMANA sostenida (sin eco)
 let mudo = false;  // VIERNES está hablando por el altavoz
 let racha = 0;
+let ciego = true;     // AudioContext suspendido o señal muerta: el oído NO puede medir → no debe rechazar nada
+let ceroRacha = 0;    // marcos seguidos con señal muerta (todos ceros)
 
 const limitar = (v, a, b) => Math.max(a, Math.min(b, v));
 const pct = (arr, p) => {
@@ -64,7 +66,14 @@ const pct = (arr, p) => {
 /* ── Apertura y cierre ── */
 async function abrir() {
   if (abierta) return true;
-  if (cfg.apagado) return false; // interruptor manual: {"apagado":true} en viernes_escucha_cfg
+  // Releer config: permite que el interruptor de ajustes funcione al instante
+  try { Object.assign(cfg, JSON.parse(localStorage.getItem("viernes_escucha_cfg") || "{}")); } catch (e) {}
+  if (cfg.apagado) return false; // interruptor manual: {"apagado":true}
+  // Bloqueo automático de 24 h tras un conflicto de micrófono sanado
+  try {
+    const hasta = parseInt(localStorage.getItem("viernes_oido_bloqueado") || "0", 10);
+    if (hasta && Date.now() < hasta) return false;
+  } catch (e) {}
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -86,6 +95,7 @@ async function abrir() {
     fqFrecuencia = ctx.sampleRate / analizador.fftSize;
     abierta = true;
     abiertaDesde = Date.now();
+    ciego = true; ceroRacha = 0; // fail-open hasta que el primer marco pruebe señal viva
     frames = []; tsVoz = []; racha = 0;
     clearInterval(timer);
     timer = setInterval(medir, cfg.marcoMs);
@@ -113,12 +123,17 @@ function banda(fq, deHz, aHz) {
 }
 function medir() {
   if (!abierta || !analizador || document.hidden) return;
+  // ¿Oído CIEGO? Si el AudioContext no corre (teléfono lo suspendió), el oído
+  // NO puede juzgar: no debe rechazar nada. Intenta despertar y queda fail-open.
+  if (ctx && ctx.state !== "running") { ciego = true; try { ctx.resume(); } catch (e) {} return; }
   const t = Date.now();
   analizador.getFloatTimeDomainData(tdData);
   let s = 0;
   for (let i = 0; i < tdData.length; i++) s += tdData[i] * tdData[i];
   const rms = Math.sqrt(s / tdData.length);
   const db = Math.max(-100, 20 * Math.log10(rms + 1e-9));
+  // Señal MUERTA sostenida (puros ceros >10 s): también ceguera → fail-open
+  if (db <= -95) { if (++ceroRacha > 300) ciego = true; } else { ceroRacha = 0; ciego = false; }
 
   analizador.getByteFrequencyData(fqData);
   const total = banda(fqData, 40, 8000) + 1e-9;
@@ -169,6 +184,8 @@ function medir() {
 /* ── Consultas para el app ── */
 function vozReciente(ms) {
   if (!abierta) return false;
+  // Oído CIEGO (contexto suspendido / señal muerta / página oculta): no puede juzgar → no rechaza
+  if (ciego || document.hidden) return true;
   const ventana = Number(ms) || 1800;
   const ahora = Date.now();
   const ultSost = tsVoz.length ? tsVoz[tsVoz.length - 1] : -Infinity;
@@ -197,9 +214,12 @@ function escucharMudo(v) { mudo = !!v; if (v) racha = 0; }
 /* ¿el oído llegó a detectar voz humana en TODA la sesión? y ¿cuánto lleva abierto? */
 function algoVio() { return vioVoz; }
 function abiertaHace() { return abierta ? Math.floor((Date.now() - abiertaDesde) / 1000) : -1; }
+/* timestamp de la ÚLTIMA voz humana sostenida detectada (0 = nunca) */
+function ultimaVoz() { return tsVoz.length ? tsVoz[tsVoz.length - 1] : 0; }
+function estaCiego() { return abierta && ciego; }
 
 window.ViernesEscucha = {
   get abierta() { return abierta; },
-  abrir, cerrar, vozReciente, niveles, escucharMudo, algoVio, abiertaHace,
+  abrir, cerrar, vozReciente, niveles, escucharMudo, algoVio, abiertaHace, ultimaVoz, estaCiego,
 };
 })();

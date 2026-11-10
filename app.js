@@ -290,6 +290,29 @@ function actualizarReloj() {
 }
 
 /* ==== VOZ (Web Speech) ==== */
+/* ── SANADO DE ESCUCHA: el oído frontal JAMÁS puede dejar a VIERNES sordo ──
+   Si el oído entra en conflicto con el reconocedor (Android puede matar el
+   reconocedor al abrir la segunda línea), se cierra el oído, se apaga 24 h
+   y la escucha se reconstruye. Preferimos escuchar SIN filtro a no escuchar. */
+let oidoCaidoSesion = false, lastReconSenal = Date.now();
+function sanarEscucha(motivo) {
+  log(motivo, "warn");
+  oidoCaidoSesion = true;
+  try { localStorage.setItem("viernes_oido_bloqueado", String(Date.now() + 24 * 3600 * 1000)); } catch (e) {}
+  if (VE) VE.cerrar();
+  if (recognition) { try { recognition.onend = null; recognition.abort(); } catch (e) {} recognition = null; }
+  setTimeout(() => { if (listening) { iniciarReconocimiento(); try { recognition.start(); } catch (e) {} } }, 400);
+}
+setInterval(() => {
+  // Vigilante de silencio: el oído SÍ detecta voz humana reciente, pero el
+  // reconocedor lleva 45 s sin dar señal → está congelado → sanar.
+  if (!listening || speaking || !VE || !VE.abierta) return;
+  if (Date.now() - lastReconSenal < 45000) return;
+  const uv = VE.ultimaVoz ? VE.ultimaVoz() : 0;
+  if (!uv || Date.now() - uv > 30000) return; // el oído tampoco oye: silencio normal
+  sanarEscucha("El oído escucha su voz pero el reconocedor está congelado: reinicio la escucha");
+}, 10000);
+
 function iniciarReconocimiento() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { log("Reconocimiento no soportado", "error"); return; }
@@ -323,29 +346,21 @@ function iniciarReconocimiento() {
     if (e.error === "not-allowed" || e.error === "service-not-allowed") { listening = false; setEstado("standby"); log("Micrófono denegado", "error"); }
     else if (e.error === "audio-capture" && VE && VE.abierta) {
       // CONFLICTO DE MICRÓFONO: la segunda línea del oído frontal puede robar
-      // la línea del reconocedor en algunos Android. Se cierra el oído y se
-      // reconstruye la escucha — oír BIEN es más importante que el filtro.
-      VE.cerrar();
-      log("Micrófono en conflicto con el oído frontal: lo cierro para que la escucha vuelva", "warn");
-      if (recognition) { try { recognition.onend = null; recognition.abort(); } catch (err) {} recognition = null; }
-      setTimeout(() => { if (listening) { iniciarReconocimiento(); try { recognition.start(); } catch (err) {} } }, 400);
+      // la línea del reconocedor en algunos Android. Sanar: oír BIEN es más
+      // importante que el filtro.
+      sanarEscucha("Micrófono en conflicto con el oído frontal: lo cierro para que la escucha vuelva");
     }
   };
-  // Vigilante: si el reconocedor reinicia mucho SIN entregar NADA y el oído
-  // está abierto, es el síntoma clásico del mismo conflicto → cerrar el oído.
+  // Vigilante de tormenta de reinicios: 6 arranques en 30 s SIN entregar NADA
+  // con el oído abierto es el mismo conflicto → sanar.
   let arranquesRecon = [], llegoAlgo = 0;
   recognition.addEventListener("start", () => {
+    lastReconSenal = Date.now();
     arranquesRecon.push(Date.now());
     arranquesRecon = arranquesRecon.filter((t) => Date.now() - t < 30000);
-    if (arranquesRecon.length >= 6 && llegoAlgo === 0 && VE && VE.abierta) {
-      VE.cerrar();
-      arranquesRecon = [];
-      log("El reconocedor muere en bucle con el oído frontal abierto: cierro el oído y reinicio", "warn");
-      if (recognition) { try { recognition.onend = null; recognition.abort(); } catch (err) {} recognition = null; }
-      setTimeout(() => { if (listening) { iniciarReconocimiento(); try { recognition.start(); } catch (err) {} } }, 400);
-    }
+    if (arranquesRecon.length >= 6 && llegoAlgo === 0 && VE && VE.abierta) sanarEscucha("El reconocedor muere en bucle con el oído frontal abierto: cierro el oído y reinicio");
   });
-  recognition.addEventListener("result", () => { llegoAlgo++; });
+  recognition.addEventListener("result", () => { llegoAlgo++; lastReconSenal = Date.now(); });
 }
 
 /* Une los trozos en que Chrome parte una misma frase y la procesa completa tras la pausa */
@@ -423,6 +438,7 @@ async function activarMicrofono() {
   iniciarReconocimiento();
   if (!recognition) { log("Reconocimiento no soportado", "error"); return; }
   listening = true; setEstado("listening");
+  lastReconSenal = Date.now();
   try { recognition.start(); } catch (e) { log("Error al iniciar micrófono: " + e.message, "error"); }
   $("btnPower").classList.add("active"); $("btnMic").classList.add("active");
   $("powerLabel").textContent = "ACTIVO";
@@ -430,7 +446,7 @@ async function activarMicrofono() {
   pedirCandado();
   // Oído frontal: línea de audio con AEC+NS+AGC para vigilar la habitación.
   // Con retardo: que el reconocedor tome el micrófono PRIMERO y se asiente.
-  if (VE) {
+  if (VE && !oidoCaidoSesion) {
     setTimeout(() => {
       if (!listening) return; // se desactivó mientras tanto
       VE.abrir().then((ok) => { if (ok) log("Oído frontal activo (cancelación de eco + filtros de ruido)", "ok"); }).catch((e) => { log("Oído frontal no disponible: " + e.message, "warn"); });
@@ -2058,6 +2074,16 @@ function aplicarUI() {
   sv("setWakeWords", cfg.wakeWords); sv("setLanguage", cfg.language);
   sv("setFollowUp", cfg.followUp); st("followUpValue", cfg.followUp + " s");
   sc("setHandsFree", cfg.handsFree); sc("setAutoStartMic", cfg.autoStartMic);
+  // Estado del oído anti-ruido: apagado si el usuario lo puso así o si quedó bloqueado 24 h por conflicto
+  const soPop = $("setOido");
+  if (soPop) {
+    let oidoOff = false;
+    try {
+      oidoOff = (JSON.parse(localStorage.getItem("viernes_escucha_cfg") || "{}").apagado === true) ||
+                Date.now() < parseInt(localStorage.getItem("viernes_oido_bloqueado") || "0", 10);
+    } catch (e) {}
+    soPop.checked = !oidoOff;
+  }
   sv("setImageDetail", cfg.imageDetail); sv("setMaxImage", cfg.maxImage);
   sc("setAutoAttach", cfg.autoAttach); sc("setMirror", cfg.mirror);
   sc("setMemory", cfg.memory); sc("setRememberKey", cfg.rememberKey);
@@ -2100,6 +2126,20 @@ function bindAjustes() {
     const el = $(id); if (!el) continue;
     el.addEventListener("change", () => { cfg[key] = el.checked; save(); });
   }
+  // Oído anti-ruido (Echo): interruptor propio (localStorage viernes_escucha_cfg)
+  const soWire = $("setOido");
+  if (soWire) soWire.addEventListener("change", () => {
+    try { localStorage.setItem("viernes_escucha_cfg", JSON.stringify({ apagado: !soWire.checked })); } catch (e) {}
+    if (soWire.checked) {
+      oidoCaidoSesion = false;
+      try { localStorage.removeItem("viernes_oido_bloqueado"); } catch (e) {}
+      if (listening && VE) VE.abrir().then((ok) => { if (ok) log("Oído anti-ruido activado", "ok"); });
+      log("Oído anti-ruido (Echo) activado", "ok");
+    } else {
+      if (VE) VE.cerrar();
+      log("Oído anti-ruido desactivado — la escucha básica sigue", "warn");
+    }
+  });
   const ranges = { setRate:"rate", setPitch:"pitch", setFollowUp:"followUp" };
   for (const [id, key] of Object.entries(ranges)) {
     const el = $(id); if (!el) continue;
