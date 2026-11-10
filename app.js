@@ -732,6 +732,122 @@ async function climaDe(lat, lon, lugar) {
     ", sensación de " + Math.round(c.apparent_temperature || c.temperature_2m) + " grados, humedad " +
     c.relative_humidity_2m + " por ciento, viento de " + Math.round(c.wind_speed_10m) + " kilómetros por hora.";
 }
+/* ── PRONÓSTICO COMPLETO (agilidad tipo Echo) ──
+   Una sola petición trae actual + hora por hora + 7 días, queda en
+   CACHÉ 15 minutos y TODAS las respuestas se arman localmente sin
+   pasar por la IA: «va a llover hoy / por la tarde / en la semana /
+   mañana / para el jueves / después» responden al instante. */
+let cacheClima = null;
+try { cacheClima = JSON.parse(localStorage.getItem("viernes_clima") || "null"); } catch (e) {}
+async function pronosticoDe(lat, lon, forzar) {
+  if (!forzar && cacheClima && Date.now() - cacheClima.t < 15 * 60000 &&
+      Math.abs(cacheClima.lat - lat) < 0.4 && Math.abs(cacheClima.lon - lon) < 0.4) return cacheClima.data;
+  const r = await fetch("https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon +
+    "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m" +
+    "&hourly=temperature_2m,precipitation_probability,precipitation,weather_code" +
+    "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,sunrise,sunset" +
+    "&timezone=auto&forecast_days=7");
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  const data = await r.json();
+  cacheClima = { lat, lon, t: Date.now(), data };
+  try { localStorage.setItem("viernes_clima", JSON.stringify(cacheClima)); } catch (e) {}
+  return data;
+}
+/* Índice de la HORA ACTUAL en las series del pronóstico (viene en hora local del lugar) */
+function indiceHoraActual(data) {
+  const off = Math.floor((data.utc_offset_seconds || 0) / 60) * 60;
+  const ahora = new Date(Date.now() + off * 1000).toISOString().slice(0, 13); // «2026-11-09T14»
+  const t = (data.hourly && data.hourly.time) || [];
+  let i = 0;
+  while (i < t.length && String(t[i]).slice(0, 13) < ahora) i++;
+  return i < t.length ? i : 0;
+}
+function diaSemanalDe(isoDia) {
+  const d = new Date((isoDia || "") + "T12:00:00Z");
+  return isNaN(d) ? "" : ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"][d.getUTCDay()];
+}
+/* Hora local hablada: 16:00 → «4 de la tarde» */
+function horaHumana(isoHora) {
+  const h = parseInt(String(isoHora).slice(11, 13), 10);
+  if (isNaN(h)) return "";
+  const numero = h === 0 ? 12 : (h % 12 || 12);
+  const franja = h === 0 ? "de la medianoche" : h < 6 ? "de la madrugada" : h < 12 ? "de la mañana" : h === 12 ? "del mediodía" : h < 19 ? "de la tarde" : "de la noche";
+  return numero + " " + franja;
+}
+function diaDesc(code) { return CODIGOS_CLIMA[code] || "cambiante"; }
+/* Resumen de una ventana de horas [a,b): prob. máxima, mm y hora probable de inicio */
+function ventanaHoras(data, a, b) {
+  const h = data.hourly;
+  let prob = 0, mm = 0, inicio = null, picoTemp = -99, picoHora = null;
+  for (let i = Math.max(0, a); i < Math.min(b, h.time.length); i++) {
+    const p2 = h.precipitation_probability ? (h.precipitation_probability[i] || 0) : 0;
+    if (p2 > prob) prob = p2;
+    mm += (h.precipitation && h.precipitation[i]) || 0;
+    if (p2 >= 50 && inicio == null) inicio = h.time[i];
+    const t2 = (h.temperature_2m && h.temperature_2m[i]) || -99;
+    if (t2 > picoTemp) { picoTemp = t2; picoHora = h.time[i]; }
+  }
+  return { prob, mm: Math.round(mm * 10) / 10, inicio, picoTemp, picoHora };
+}
+function fraseLluviaDeVentana(v, prefijo) {
+  if (v.prob >= 60) return prefijo + "sí, " + (v.inicio ? "hacia las " + horaHumana(v.inicio) + " " : "") + "llueve con " + v.prob + " por ciento" + (v.mm < 2 ? ", aunque poco" : "");
+  if (v.prob >= 30) return prefijo + "lluvia posible, con " + v.prob + " por ciento";
+  return prefijo + "se ve sin lluvia";
+}
+/* Resumen hablado de un día del diario: «jueves, nublado, entre 18 y 28, lluvia posible 40%» */
+function resumenDia(data, idxDia, conNombre) {
+  const d = data.daily;
+  const nom = conNombre ? diaSemanalDe(d.time[idxDia]) : "";
+  const ll2 = d.precipitation_probability_max ? (d.precipitation_probability_max[idxDia] || 0) : 0;
+  const ll2mm = (d.precipitation_sum && d.precipitation_sum[idxDia]) || 0;
+  return (nom ? nom + " " : "") + diaDesc(d.weather_code[idxDia]) + ", entre " + Math.round(d.temperature_2m_min[idxDia]) +
+    " y " + Math.round(d.temperature_2m_max[idxDia]) + " grados" +
+    (ll2 >= 30 ? ", " + (ll2 >= 60 ? "lluvia probable" : "lluvia posible") + " con " + ll2 + " por ciento" + (ll2mm < 1.5 ? ", nada más llovizna" : "") : ", sin lluvia");
+}
+/* Los próximos HORAS: respuesta a «qué clima habrá después / más tarde» */
+function resumenSiguientes(data) {
+  const h = data.hourly;
+  const i0 = indiceHoraActual(data);
+  const fin = Math.min(h.time.length, i0 + 6);
+  const v = ventanaHoras(data, i0 + 1, fin);
+  const ahora = Math.round((h.temperature_2m && h.temperature_2m[i0]) || 0);
+  let frase = "después sigue " + diaDesc(h.weather_code[i0]) + " con " + ahora + " grados";
+  if (v.picoHora && v.picoTemp > ahora + 1.5) frase += ", subiendo a " + Math.round(v.picoTemp) + " hacia las " + horaHumana(v.picoHora);
+  else if (v.picoHora && v.picoTemp < ahora - 1.5) frase += ", bajando a " + Math.round(v.picoTemp) + " hacia las " + horaHumana(v.picoHora);
+  frase += ".";
+  const ll = fraseLluviaDeVentana(v, "En estas horas, ");
+  return frase + " " + ll.charAt(0).toUpperCase() + ll.slice(1) + ".";
+}
+/* La SEMANA completa: cuántos días llueve, cuáles y el más caluroso */
+function resumenSemana(data) {
+  const d = data.daily;
+  const llDias = [], despejados = [];
+  let masCal = -99, masCalDia = 0;
+  for (let i = 0; i < d.time.length; i++) {
+    const p = d.precipitation_probability_max ? (d.precipitation_probability_max[i] || 0) : 0;
+    if (p >= 50) llDias.push(diaSemanalDe(d.time[i]));
+    else despejados.push(diaSemanalDe(d.time[i]));
+    if (d.temperature_2m_max[i] > masCal) { masCal = d.temperature_2m_max[i]; masCalDia = i; }
+  }
+  if (!llDias.length) return tratoInicio() + ", en toda la semana no aparece lluvia: están " + despejados.slice(0, 4).join(", ") + " despejados, y lo más caluroso va " + diaSemanalDe(d.time[masCalDia]) + " con " + Math.round(masCal) + " grados.";
+  return tratoInicio() + ", llueve " + llDias.length + (llDias.length === 1 ? " día" : " días") + " esta semana: " + llDias.join(" y ") + "; los demás despejados, y lo más caluroso " + diaSemanalDe(d.time[masCalDia]) + " con " + Math.round(masCal) + " grados.";
+}
+/* Fines de semana: sábado y domingo resumidos */
+function resumenFinSemana(data) {
+  const d = data.daily;
+  const idx = [];
+  for (let i = 0; i < d.time.length; i++) { const wd = diaSemanalDe(d.time[i]); if (wd === "sábado" || wd === "domingo") idx.push(i); }
+  if (!idx.length) return tratoInicio() + ", el fin de semana quedó fuera del horizonte de 7 días.";
+  const partes = idx.map((i) => resumenDia(data, i, false));
+  return tratoInicio() + ", fin de semana: " + partes.join("; ") + ".";
+}
+function resumenActual(data, lugar) {
+  const c = data.current || {};
+  const desc = diaDesc(c.weather_code);
+  return tratoInicio() + ", en " + lugar + " hay " + Math.round(c.temperature_2m) + " grados, " + desc +
+    ", sensación de " + Math.round(c.apparent_temperature || c.temperature_2m) + " grados, humedad " +
+    c.relative_humidity_2m + " por ciento, viento de " + Math.round(c.wind_speed_10m) + " kilómetros por hora.";
+}
 /* ==== UBICACIÓN: GPS con alta precisión, guardada y con motivo claro si falla ==== */
 let ubicacionActual = null; // { lat, lon, nombre, t }
 try { ubicacionActual = JSON.parse(localStorage.getItem("viernes_ubic") || "null"); } catch (e) { ubicacionActual = null; }
@@ -762,27 +878,132 @@ async function actualizarUbicacion() {
   return ubicacionActual;
 }
 const PALABRAS_LUGAR_PROPIO = /\b(mi|mis|aqui|aca|ahi|donde estoy|ubicacion|casa|local|oficina)\b/;
+/* COMANDO CLIMA COMPLETO (estilo Echo): lugar + ventana + lluvia + semana.
+   Las palabras de tiempo NO se dejan llevar a geocodificación. */
+const PALABRAS_TIEMPO = /^(?:hoy|manana|tarde|noche|madrugada|semana|dia|final|resto|mediodia|amanecer|anochecer|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/;
+const DIAS_SEM = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6 };
 async function comandoClima(texto) {
-  const m = texto.match(/\b(?:en|de|para)\s+([a-záéíóúñü\s]{3,})[?!.,\s]*$/i);
+  const n = normalizar(texto);
+  // ── lugar: «en X» — se ignora si X es una palabra de tiempo (la semana, hoy...) ──
+  const mLugar = texto.match(/\b(?:en|de|para)\s+([a-záéíóúñü\s]{3,})[?!.,\s]*$/i);
   let geo = null;
-  const nombre = m ? m[1].trim().replace(/^(la|el|los|las)\s+/i, "") : "";
-  if (nombre && !PALABRAS_LUGAR_PROPIO.test(normalizar(nombre))) {
+  const nombre = mLugar ? mLugar[1].trim().replace(/^(?:la|el|los|las)\s+/i, "") : "";
+  if (nombre && !PALABRAS_LUGAR_PROPIO.test(normalizar(nombre)) && !PALABRAS_TIEMPO.test(normalizar(nombre))) {
     geo = await buscarCiudad(nombre);
     if (!geo) return tratoInicio() + ", no encontré la ciudad «" + nombre + "». Pronúnciela de otra forma o pregúnteme por su ubicación.";
   }
+  // ── su posición: la GUARDADA si está fresca (agilidad); GPS solo si es vieja ──
   if (!geo) {
-    try {
-      const u = await actualizarUbicacion();
-      geo = { lat: u.lat, lon: u.lon, nombre: u.nombre };
-    } catch (e) {
-      if (ubicacionActual && Date.now() - ubicacionActual.t < 6 * 3600 * 1000) {
-        geo = { lat: ubicacionActual.lat, lon: ubicacionActual.lon, nombre: ubicacionActual.nombre };
-      } else {
+    if (ubicacionActual && Date.now() - ubicacionActual.t < 6 * 3600 * 1000) {
+      geo = { lat: ubicacionActual.lat, lon: ubicacionActual.lon, nombre: ubicacionActual.nombre };
+    } else {
+      try {
+        const u = await actualizarUbicacion();
+        geo = { lat: u.lat, lon: u.lon, nombre: u.nombre };
+      } catch (e) {
         return tratoInicio() + ", " + e.message.charAt(0).toLowerCase() + e.message.slice(1);
       }
     }
   }
-  return await climaDe(geo.lat, geo.lon, geo.nombre);
+  const data = await pronosticoDe(geo.lat, geo.lon);
+  const h = data.hourly, d = data.daily;
+  const i0 = indiceHoraActual(data);
+  const diaHoy = String(h.time[i0]).slice(0, 10);
+  let finHoy = i0;
+  while (finHoy < h.time.length && String(h.time[finHoy]).slice(0, 10) === diaHoy) finHoy++;
+  // índices de horas límites de la tarde/noche (en hora LOCAL del lugar).
+  // Buscan DESDE la hora actual inclusive: si son las 15:30, la tarde empieza AHORA.
+  const horaDe = (i) => parseInt(String(h.time[i]).slice(11, 13), 10) || 0;
+  let idx12 = finHoy, idx19 = finHoy;
+  for (let i = i0; i < finHoy; i++) {
+    const hx = horaDe(i);
+    if (hx >= 12 && idx12 === finHoy) idx12 = i;
+    if (hx >= 19 && idx19 === finHoy) idx19 = i;
+  }
+
+  const hayLluvia = /\b(?:lluvia|llueve|va a llover|llovera|llovizn|va a caer agua|debe llover|va a haber lluvia|habra lluvia|esta lloviendo|chubascos|tormenta)\b/.test(n);
+  const hayTarde = /\b(?:por|en|de|a)\s+la\s+tarde\b/.test(n);
+  const hayNoche = /\b(?:por|en|de|a)\s+la\s+noche\b/.test(n);
+  const esMananaDia = /\bmanana\b/.test(n) && !/\b(?:esta|por|en|de)\s+(?:la\s+)?manana\b/.test(n);
+  const hayMañanaParte = /\b(?:esta|por|en|de)\s+(?:la\s+)?manana\b/.test(n);
+  const hayMadru = /\bmadrugada\b/.test(n);
+  const haySemana = /\b(?:esta|en la|toda la|durante la|de la|la)\s+semana\b|\bsemana\b/.test(n);
+  const hayFinSemana = /\bfin de semana\b/.test(n);
+  const hayDespues = /\b(?:despues|mas tarde|luego|hoy mas tarde|de aqui en adelante|que tal despues)\b/.test(n);
+  const esDiaNombrado = (() => {
+    for (const k in DIAS_SEM) if (new RegExp("\\b" + k + "\\b").test(n)) {
+      for (let i = 0; i < d.time.length; i++) if (diaSemanalDe(String(d.time[i])) === (["domingo","lunes","martes","miércoles","jueves","viernes","sábado"][DIAS_SEM[k]])) return i;
+    }
+    return -1;
+  })();
+  const quiereCalor = /\bcalor\b/.test(n), quiereFrio = /\bfrio\b/.test(n);
+  // ── LA SEMANA / FIN DE SEMANA ──
+  if (haySemana || (hayFinSemana && !hayLluvia)) {
+    if (hayFinSemana) return resumenFinSemana(data);
+    if (hayLluvia) {
+      const llDias = [];
+      for (let i = 0; i < d.time.length; i++) {
+        const p = d.precipitation_probability_max ? (d.precipitation_probability_max[i] || 0) : 0;
+        if (p >= 50) llDias.push(diaSemanalDe(String(d.time[i])));
+      }
+      if (!llDias.length) return tratoInicio() + ", en la semana no aparece lluvia en el horizonte de 7 días; los " + d.time.length + " días se ven sin lluvia.";
+      return tratoInicio() + ", esta semana llueve " + llDias.length + (llDias.length === 1 ? " día: " : " días: ") + llDias.join(" y ") + "; el resto se queda sin lluvia.";
+    }
+    return resumenSemana(data);
+  }
+  // ── DÍA NOMBRADO («para el jueves», «lloverá el viernes») ──
+  if (esDiaNombrado >= 0) {
+    if (hayLluvia) {
+      const i = esDiaNombrado;
+      const p = d.precipitation_probability_max ? (d.precipitation_probability_max[i] || 0) : 0;
+      const nom = diaSemanalDe(String(d.time[i]));
+      if (p >= 60) return tratoInicio() + ", el " + nom + " sí lluvia probable, " + p + " por ciento" + ((d.precipitation_sum[i] || 0) < 1.5 ? ", nada más llovizna" : "") + ".";
+      if (p >= 30) return tratoInicio() + ", el " + nom + " hay lluvia posible, " + p + " por ciento.";
+      return tratoInicio() + ", el " + nom + " se ve sin lluvia: " + diaDesc(d.weather_code[i]) + ". También estará entre " + Math.round(d.temperature_2m_min[i]) + " y " + Math.round(d.temperature_2m_max[i]) + " grados.";
+    }
+    return tratoInicio() + ", para el " + resumenDia(data, esDiaNombrado, true) + ".";
+  }
+  // ── FIN DE SEMANA CON LLUVIA («lloverá el fin de semana») ──
+  if (hayFinSemana) return resumenFinSemana(data);
+  // ── DESPUÉS / MÁS TARDE (próximas horas) ──
+  if (hayDespues && !hayLluvia) return tratoInicio() + ", " + resumenSiguientes(data);
+  if (hayDespues && hayLluvia) {
+    const v = ventanaHoras(data, i0 + 1, Math.min(h.time.length, i0 + 9));
+    return tratoInicio() + ", en las próximas horas, " + (v.prob >= 60 ? "sí" + (v.inicio ? ", hacia las " + horaHumana(v.inicio) : "") + ", llueve con " + v.prob + " por ciento" : v.prob >= 30 ? "lluvia posible con " + v.prob + " por ciento" : "no aparece lluvia") + ".";
+  }
+  // ── MAÑANA COMO DÍA («qué clima hará mañana») ──
+  if (esMananaDia && !hayLluvia && d.time.length > 1) return tratoInicio() + ", mañana, " + resumenDia(data, 1, true) + ".";
+  // ── LLUVIA EN VENTANAS DE HOY ──
+  if (hayLluvia) {
+    // «lloverá mañana» → pronóstico del día siguiente completo (con lluvia)
+    if (esMananaDia && d.time.length > 1) return tratoInicio() + ", mañana, " + resumenDia(data, 1, true) + ".";
+    const vManana = ventanaHoras(data, i0, idx12);
+    const vTarde = ventanaHoras(data, idx12, idx19);
+    const vNoche = ventanaHoras(data, idx19, finHoy);
+    if (hayMañanaParte) return tratoInicio() + ", en la mañana, " + fraseLluviaDeVentana(vManana, "") + ".";
+    if (hayMadru) return tratoInicio() + ", en la madrugada, " + fraseLluviaDeVentana(vManana, "") + ".";
+    if (hayTarde) return tratoInicio() + ", por la tarde, " + fraseLluviaDeVentana(vTarde, "") + ".";
+    if (hayNoche) return tratoInicio() + ", por la noche, " + fraseLluviaDeVentana(vNoche, "") + ".";
+    const detalles = [fraseLluviaDeVentana(vManana, "por la mañana "), fraseLluviaDeVentana(vTarde, "por la tarde "), fraseLluviaDeVentana(vNoche, "por la noche ")];
+    const pDia = (d.precipitation_probability_max && d.precipitation_probability_max[0]) || 0;
+    const llDia = pDia >= 60 ? "sí llueve, con " + pDia + " por ciento" : pDia >= 30 ? "lluvia posible, con " + pDia + " por ciento" : "se ve sin lluvia";
+    return tratoInicio() + ", hoy: " + detalles.join("; ") + ". En el día, " + llDia + "; máxima de " + Math.round(d.temperature_2m_max[0]) + " grados.";
+  }
+  // ── CALOR / FRÍO («va a hacer calor hoy») ──
+  if (quiereCalor || quiereFrio) {
+    const maxima = Math.round(d.temperature_2m_max[0]), minima = Math.round(d.temperature_2m_min[0]);
+    if (quiereCalor) {
+      const p1 = maxima >= 28 ? "sí, hoy llega a " + maxima + " grados: calor de verdad; tómese agua" : "hoy llega a " + maxima + " grados: un calor " + (maxima >= 22 ? "agradable" : "suave");
+      const p2 = minima <= 14 ? ", aunque por la noche baja a " + minima : "";
+      return tratoInicio() + ", " + p1 + p2 + ".";
+    }
+    const p1 = minima <= 8 ? "sí, hoy baja a " + minima + " grados: frío de verdad; salga abrigado" : "hoy baja a " + minima + " grados: se siente " + (minima <= 14 ? "fresquito" : "más bien templado");
+    const p2 = maxima >= 28 ? " mientras el día llega a " + maxima : "";
+    return tratoInicio() + ", " + p1 + p2 + ".";
+  }
+  // ── PREGUNTA GENÉRICA DE PRONÓSTICO («pronóstico», «qué clima esta semana»...) o ACTUAL ──
+  if (/\b(?:pronostico|semana|dias siguientes|siguientes dias)\b/.test(n)) return resumenSemana(data);
+  return resumenActual(data, geo.nombre);
 }
 
 /* ==== MEMORIA DE VIERNES: notas y bitácora en el servidor (Worker + KV) ====
@@ -1708,7 +1929,7 @@ async function enviarTexto(texto) {
     // Correo (Gmail): leer, priorizar, redactar y enviar
     if (!resp && !contextoImagen) { try { resp = await comandoCorreo(texto); } catch (e) { resp = tratoInicio() + ", " + e.message; } }
     // Clima en vivo (Open-Meteo)
-    if (!resp && !contextoImagen && /temperatura|clima|tiempo hace|que tiempo|grados|lluvia|humedad|calor|frio|nevando/.test(normalizar(texto))) {
+    if (!resp && !contextoImagen && /temperatura|clima|tiempo hace|que tiempo|grados|lluvia|llueve|llover|llovizn|humedad|calor|frio|nevando|pronostico|tormenta|chubascos|viento|soleado|va a hacer/.test(normalizar(texto))) {
       try { resp = await comandoClima(texto); } catch (e) { log("Clima: " + e.message, "warn"); }
     }
     if (!resp) {
