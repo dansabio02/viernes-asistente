@@ -39,12 +39,14 @@
 "use strict";
 (() => {
 
-const CFG_DEFAULT = { margenSnr: 6, bandaMin: 0.42, scoreMin: 0.55, marcoMs: 35 };
+const CFG_DEFAULT = { margenSnr: 6, bandaMin: 0.42, scoreMin: 0.55, marcoMs: 35, apagado: false };
 let cfg = { ...CFG_DEFAULT };
 try { Object.assign(cfg, JSON.parse(localStorage.getItem("viernes_escucha_cfg") || "{}")); } catch (e) {}
 
 let stream = null, ctx = null, fuente = null, analizador = null;
 let timer = null, abierta = false;
+let abiertaDesde = 0; // para saber si lleva suficiente tiempo abierto como para juzgarlo
+let vioVoz = false;   // sesión completa: ¿el oído LLEGÓ a detectar voz humana alguna vez?
 let pisoDb = -85, ultimoPiso = 0;
 let tdData = null, fqData = null, fqFrecuencia = 23.4; // Hz por bin (se fija al abrir)
 let frames = [];   // {t, db, snr, band, vari, score, voz}
@@ -62,6 +64,7 @@ const pct = (arr, p) => {
 /* ── Apertura y cierre ── */
 async function abrir() {
   if (abierta) return true;
+  if (cfg.apagado) return false; // interruptor manual: {"apagado":true} en viernes_escucha_cfg
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -82,6 +85,7 @@ async function abrir() {
     fqData = new Uint8Array(analizador.frequencyBinCount);
     fqFrecuencia = ctx.sampleRate / analizador.fftSize;
     abierta = true;
+    abiertaDesde = Date.now();
     frames = []; tsVoz = []; racha = 0;
     clearInterval(timer);
     timer = setInterval(medir, cfg.marcoMs);
@@ -96,7 +100,7 @@ function cerrar() {
   if (stream) { stream.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} }); stream = null; }
   if (ctx) { try { ctx.close(); } catch (e) {} ctx = null; }
   fuente = null; analizador = null;
-  abierta = false; frames = []; tsVoz = []; racha = 0;
+  abierta = false; abiertaDesde = 0; frames = []; tsVoz = []; racha = 0;
 }
 
 /* ── Medición por marco ── */
@@ -157,6 +161,7 @@ function medir() {
   if (f.voz && !f.mudo) racha++; else racha = 0;
   if (racha >= 3) { // ~105 ms sostenidos: voz real, no un golpe ni un blip
     tsVoz.push(t);
+    vioVoz = true;
     if (tsVoz.length > 12) tsVoz.splice(0, tsVoz.length - 12);
   }
 }
@@ -189,9 +194,12 @@ function niveles() {
   };
 }
 function escucharMudo(v) { mudo = !!v; if (v) racha = 0; }
+/* ¿el oído llegó a detectar voz humana en TODA la sesión? y ¿cuánto lleva abierto? */
+function algoVio() { return vioVoz; }
+function abiertaHace() { return abierta ? Math.floor((Date.now() - abiertaDesde) / 1000) : -1; }
 
 window.ViernesEscucha = {
   get abierta() { return abierta; },
-  abrir, cerrar, vozReciente, niveles, escucharMudo,
+  abrir, cerrar, vozReciente, niveles, escucharMudo, algoVio, abiertaHace,
 };
 })();

@@ -321,7 +321,31 @@ function iniciarReconocimiento() {
   };
   recognition.onerror = (e) => {
     if (e.error === "not-allowed" || e.error === "service-not-allowed") { listening = false; setEstado("standby"); log("Micrófono denegado", "error"); }
+    else if (e.error === "audio-capture" && VE && VE.abierta) {
+      // CONFLICTO DE MICRÓFONO: la segunda línea del oído frontal puede robar
+      // la línea del reconocedor en algunos Android. Se cierra el oído y se
+      // reconstruye la escucha — oír BIEN es más importante que el filtro.
+      VE.cerrar();
+      log("Micrófono en conflicto con el oído frontal: lo cierro para que la escucha vuelva", "warn");
+      if (recognition) { try { recognition.onend = null; recognition.abort(); } catch (err) {} recognition = null; }
+      setTimeout(() => { if (listening) { iniciarReconocimiento(); try { recognition.start(); } catch (err) {} } }, 400);
+    }
   };
+  // Vigilante: si el reconocedor reinicia mucho SIN entregar NADA y el oído
+  // está abierto, es el síntoma clásico del mismo conflicto → cerrar el oído.
+  let arranquesRecon = [], llegoAlgo = 0;
+  recognition.addEventListener("start", () => {
+    arranquesRecon.push(Date.now());
+    arranquesRecon = arranquesRecon.filter((t) => Date.now() - t < 30000);
+    if (arranquesRecon.length >= 6 && llegoAlgo === 0 && VE && VE.abierta) {
+      VE.cerrar();
+      arranquesRecon = [];
+      log("El reconocedor muere en bucle con el oído frontal abierto: cierro el oído y reinicio", "warn");
+      if (recognition) { try { recognition.onend = null; recognition.abort(); } catch (err) {} recognition = null; }
+      setTimeout(() => { if (listening) { iniciarReconocimiento(); try { recognition.start(); } catch (err) {} } }, 400);
+    }
+  });
+  recognition.addEventListener("result", () => { llegoAlgo++; });
 }
 
 /* Une los trozos en que Chrome parte una misma frase y la procesa completa tras la pausa */
@@ -404,9 +428,13 @@ async function activarMicrofono() {
   $("powerLabel").textContent = "ACTIVO";
   log("Escucha activa. Di «Viernes»…", "ok");
   pedirCandado();
-  // Oído frontal: línea de audio con AEC+NS+AGC para vigilar la habitación
+  // Oído frontal: línea de audio con AEC+NS+AGC para vigilar la habitación.
+  // Con retardo: que el reconocedor tome el micrófono PRIMERO y se asiente.
   if (VE) {
-    VE.abrir().then((ok) => { if (ok) log("Oído frontal activo (cancelación de eco + filtros de ruido)", "ok"); }).catch((e) => { log("Oído frontal no disponible: " + e.message, "warn"); });
+    setTimeout(() => {
+      if (!listening) return; // se desactivó mientras tanto
+      VE.abrir().then((ok) => { if (ok) log("Oído frontal activo (cancelación de eco + filtros de ruido)", "ok"); }).catch((e) => { log("Oído frontal no disponible: " + e.message, "warn"); });
+    }, 1500);
   }
   if (!ubicacionActual || Date.now() - ubicacionActual.t > 6 * 3600 * 1000) {
     actualizarUbicacion().then(u => log("Ubicación: " + u.nombre, "ok")).catch(e => log("Ubicación: " + e.message, "warn"));
@@ -440,18 +468,26 @@ function verificarPassphrase(cmd) {
 }
 
 /* ── COMPUERTA ACÚSTICA con degradación segura ──
-   Si el oído frontal rechaza 5 frases seguidas (micrófono atenuado
-   o caso extraño), se suspende 3 minutos para no quedar sordo. */
+   Si el oído frontal rechaza 3 frases seguidas se suspende: 3 minutos
+   si es un bache pasajero, o 30 MINUTOS si lleva más de un minuto abierto
+   y NUNCA ha detectado voz humana (oído sin señal en este teléfono). */
 let escuchaRechazos = 0, escuchaGateHasta = 0;
 function compuertaVoz() {
   if (!VE || !VE.abierta) return true; // sin oído: degrada silenciosa
   if (Date.now() < escuchaGateHasta) return true; // ya suspendida
   if (VE.vozReciente(2400)) { escuchaRechazos = 0; return true; }
   escuchaRechazos++;
-  if (escuchaRechazos >= 5) {
+  if (escuchaRechazos >= 3) {
     escuchaRechazos = 0;
-    escuchaGateHasta = Date.now() + 180000;
-    log("Oído frontal cerrado 5 frases seguidas: lo pauso 3 min de seguridad (micrófono posiblemente callado)", "warn");
+    const nuncaVio = VE.algoVio ? !VE.algoVio() : false;
+    const llevaAbierto = VE.abiertaHace ? VE.abiertaHace() : 999;
+    if (nuncaVio && llevaAbierto > 60) {
+      escuchaGateHasta = Date.now() + 30 * 60000;
+      log("Oído frontal lleva " + llevaAbierto + " s abierto y NO ha detectado voz: lo suspendo 30 min para no quedar sordo", "warn");
+    } else {
+      escuchaGateHasta = Date.now() + 180000;
+      log("Oído frontal rechazó 3 frases seguidas: pausa de seguridad 3 min", "warn");
+    }
   }
   return false;
 }
