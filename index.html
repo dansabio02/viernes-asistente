@@ -227,6 +227,7 @@
             <div class="two-fields">
               <div class="field-group"><label for="setFollowUp">Ventana de seguimiento <output id="followUpValue">12 s</output></label><input type="range" id="setFollowUp" min="0" max="30" step="1"></div>
               <div class="field-group"><label>Escucha</label><label class="check-row compact"><input type="checkbox" id="setHandsFree"><span>Escucha continua</span></label><label class="check-row compact"><input type="checkbox" id="setOido"><span>Oído anti-ruido (Echo)</span></label><label class="check-row compact"><input type="checkbox" id="setAutoStartMic"><span>Activar al abrir</span></label></div>
+              <div class="field-group"><label>Alarmas y recordatorios</label><input type="time" id="recHora"><input type="text" id="recTexto" placeholder="Texto (ej. tomar medicina)" autocomplete="off"><label class="check-row compact"><input type="checkbox" id="recDiario"><span>Repetir cada día</span></label><button class="btn btn-secondary" id="btnAgregarRec" type="button">Agregar alarma</button><ul id="recLista" class="rec-list"></ul></div>
             </div>
             <div class="info-box amber">
               <svg><use href="#i-shield"/></svg>

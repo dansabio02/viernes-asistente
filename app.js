@@ -343,6 +343,8 @@ function iniciarReconocimiento() {
     if (fin) acumularFinal(fin.trim(), confN ? confSum / confN : 0);
   };
   recognition.onerror = (e) => {
+    if (e.error !== "no-speech" && e.error !== "aborted") log("Micrófono: error «" + e.error + "»", "warn");
+    if (e.error === "network") toast("Sin conexión con el servicio de voz. Reintentando…");
     if (e.error === "not-allowed" || e.error === "service-not-allowed") { listening = false; setEstado("standby"); log("Micrófono denegado", "error"); }
     else if (e.error === "audio-capture" && VE && VE.abierta) {
       // CONFLICTO DE MICRÓFONO: la segunda línea del oído frontal puede robar
@@ -1561,10 +1563,43 @@ function checkRecordatorios() {
     if (synth) { try { synth.cancel(); } catch (e) {} }
     hablarLocal(tratoInicio("urgente") + ", " + mensaje);
   }
-  if (cambios) guardarRecordatorios();
+  if (cambios) { guardarRecordatorios(); renderRecordatorios(); }
 }
 setInterval(checkRecordatorios, 15000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkRecordatorios(); });
+
+/* Alarmas y recordatorios desde Ajustes (mismo motor que la voz) */
+function renderRecordatorios() {
+  const ul = $("recLista"); if (!ul) return;
+  const vivos = recordatorios.filter((r2) => !r2.hecho).sort((a, b) => a.t - b.t);
+  ul.innerHTML = "";
+  if (!vivos.length) { const li = document.createElement("li"); li.textContent = "Sin alarmas pendientes"; ul.appendChild(li); return; }
+  for (const r2 of vivos) {
+    const f = new Date(r2.t);
+    const hora = String(f.getHours()).padStart(2, "0") + ":" + String(f.getMinutes()).padStart(2, "0");
+    const li = document.createElement("li");
+    li.textContent = (r2.tipo === "alarma" ? "⏰ " : "🔔 ") + hora + " · " + (r2.txt || "Despertar") + (r2.rep === "daily" ? " (diario)" : "") + " ";
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "link-btn tiny"; b.textContent = "Borrar";
+    b.addEventListener("click", () => { recordatorios = recordatorios.filter((x) => x.id !== r2.id); guardarRecordatorios(); renderRecordatorios(); });
+    li.appendChild(b); ul.appendChild(li);
+  }
+}
+function agregarRecordatorioUI() {
+  const hora = ($("recHora") || {}).value || "";
+  const txt = (($("recTexto") || {}).value || "").trim();
+  if (!hora) { toast("Elija una hora"); return; }
+  const [hh, mm] = hora.split(":").map(Number);
+  const t = new Date(); t.setHours(hh, mm, 0, 0);
+  if (t.getTime() <= Date.now()) t.setDate(t.getDate() + 1);
+  const diario = !!($("recDiario") || {}).checked;
+  recordatorios.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), tipo: "alarma", txt, t: t.getTime(), rep: diario ? "daily" : null, hecho: false });
+  guardarRecordatorios(); renderRecordatorios();
+  if ($("recTexto")) $("recTexto").value = "";
+  if (window.Notification && Notification.permission === "default") Notification.requestPermission().catch(() => {});
+  toast("Alarma programada a las " + hora);
+  log("Alarma programada a las " + hora + (txt ? ": " + txt : ""), "ok");
+}
 
 /* ==== AGENDA: Calendario de Google con el mismo OAuth del correo ====
    «¿Qué tengo mañana?» → los eventos de ese día.
@@ -2127,6 +2162,9 @@ function bindAjustes() {
     el.addEventListener("change", () => { cfg[key] = el.checked; save(); });
   }
   // Oído anti-ruido (Echo): interruptor propio (localStorage viernes_escucha_cfg)
+  const btnRec = $("btnAgregarRec");
+  if (btnRec) btnRec.addEventListener("click", agregarRecordatorioUI);
+  renderRecordatorios();
   const soWire = $("setOido");
   if (soWire) soWire.addEventListener("change", () => {
     try { localStorage.setItem("viernes_escucha_cfg", JSON.stringify({ apagado: !soWire.checked })); } catch (e) {}
