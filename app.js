@@ -443,7 +443,11 @@ async function activarMicrofono() {
   lastReconSenal = Date.now();
   if (window.ViernesNativo) {
     // App nativa: el micrófono lo lleva el servicio en primer plano (funciona con la pantalla bloqueada)
-    window.viernesNativoTexto = (t) => { if (t) procesarVoz(t); };
+    window.viernesNativoTexto = (t) => {
+      // Mismo tratamiento que el reconocedor web: ignorar el eco de su propia voz y deduplicar
+      if (!t || speaking || Date.now() - finHablaTime < 2500) return;
+      acumularFinal(String(t).trim(), 0);
+    };
     try { window.ViernesNativo.iniciarEscucha(); log("Escucha nativa activa (funciona con la pantalla bloqueada)", "ok"); } catch (e) { log("Escucha nativa: " + e.message, "error"); }
   } else {
     try { recognition.start(); } catch (e) { log("Error al iniciar micrófono: " + e.message, "error"); }

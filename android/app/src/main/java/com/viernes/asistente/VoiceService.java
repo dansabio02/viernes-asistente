@@ -43,6 +43,7 @@ public class VoiceService extends Service {
         intentReco.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         intentReco.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-MX");
         intentReco.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+        intentReco.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
     }
 
     @Override
