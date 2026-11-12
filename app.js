@@ -1464,7 +1464,7 @@ function parsearCuando(n) {
     // Repetición
     if (/\b(cada manana|todas las mananas|todos los dias|cada dia|diario)\b/.test(n)) rep = "daily";
     // Hora
-    const HORA = /\ba las?\s+(\d{1,2})(?:\s*[:.]\s*|\s+y\s+|\s+)?(\d{2}|media|cuarto)?(?:\s*(?:de la\s+)?(manana|tarde|noche|madrugada|am|pm))?\b/;
+    const HORA = /\b(?:a|para) las?\s+(\d{1,2})(?:\s*[:.]\s*|\s+y\s+|\s+)?(\d{2}|media|cuarto)?(?:\s*(?:de la\s+)?(manana|tarde|noche|madrugada|am|pm))?\b/;
     if ((m = n.match(HORA))) {
       let hh = parseInt(m[1]);
       const mmRaw = m[2] || "";
@@ -1503,8 +1503,9 @@ function descripcionCuando(t) {
 /* Módulo de voz: crear/listar/borrar recordatorios y alarmas */
 async function comandoRecordatorio(texto) {
   const n = normalizar(texto);
-  const esAlarma = /^(despiertame|despierta me|alarmame|alarma|pon me|ponme|pon una|crea una|una alarma)\b/.test(n);
-  const esRecuerdo = /^(recuerdame|recuerda me|recuerdeme|recordar)\b/.test(n);
+  // Frases naturales: «ponme una alarma», «quiero que me avises…», «¿me recuerdas…?»
+  const esAlarma = /\b(despiert\w*|alarm\w*|pon(me|e)? una alarma|crea una alarma|quiero una alarma|me avises|avisame|avisarme)\b/.test(n);
+  const esRecuerdo = /\b(recuerd\w*|recordatorio|no me dejes olvidar|no se me olvide|acuerdame)\b/.test(n);
   if (!esAlarma && !esRecuerdo && !/^(ve|dime|lista|cuales|borra|elimina|cancela)\b.*\b(recordatorio|recordatorios|alarma|alarmas)\b|^mis (recordatorios|alarmas)|^que (recordatorios|alarmas) tengo/.test(n)) return null;
 
   // LISTAR
@@ -1529,15 +1530,15 @@ async function comandoRecordatorio(texto) {
   let cuerpo = "";
   if (!cuando) {
     const tipo = esAlarma ? "alarma" : "recordatorio";
-    return tratoInicio() + ", ¿a qué hora le pongo el " + tipo + "? Diga por ejemplo: a las seis de la mañana.";
+    return tratoInicio() + ", ¿a qué hora le pongo " + (esAlarma ? "la alarma" : "el recordatorio") + "? Diga por ejemplo: a las seis de la mañana.";
   }
   // extracción del contenido: quitar disparador, conectores y el trozo de tiempo
   {
     let base = n
-      .replace(/^(despiertame|despierta me|alarmame|alarma|ponme|pon me|pon una alarma|crea una alarma|una alarma|recuerdame|recuerda me|recuerdeme|recordar)\b/, "")
+      .replace(/^(?:(?:viernes|oye|ya|por favor|quiero|necesito|me puedes|puedes|podrias|pon|ponme|pon me|programa|crea|agenda|establece)\s+)*(?:una alarma|una alarma para|alarma|despiertame|despierta me|despertarme|alarmame|recuerdame|recuerda me|recuerdeme|recordar|acuerdame|me avises|avisame|avisarme|quiero que me avises|no se me olvide|no me dejes olvidar|un recordatorio|recordatorio)\b/, "")
       .replace(/\bsobre\b|\bacerca de\b/, " ").trim();
-    const trozosTiempo = /((en (una|media|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|quince|veinte|treinta|\d+)\s*(minutos?|horas?))|((pasado )?manana)|\bhoy\b|\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b|\ba las?\s+\d{1,2}(?:\s*[:.]\s*|\s+y\s+|\s+)?(\d{2}|media|cuarto)?(?:\s*(?:de la\s+)?(manana|tarde|noche|madrugada|am|pm))?|al mediodia|\b(cada manana|todas las mananas|todos los dias|cada dia|diario)\b)/g;
-    cuerpo = base.replace(trozosTiempo, " ").replace(/\s+/g, " ").replace(/^(que|de|para|a)\s+/i, "").replace(/\s+(que|de|para|a|el|la|los|al)\s*$/i, "").trim();
+    const trozosTiempo = /((en (una|media|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|quince|veinte|treinta|\d+)\s*(minutos?|horas?))|((pasado )?manana)|\bhoy\b|\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b|\b(?:a|para) las?\s+\d{1,2}(?:\s*[:.]\s*|\s+y\s+|\s+)?(\d{2}|media|cuarto)?(?:\s*(?:de la\s+)?(manana|tarde|noche|madrugada|am|pm))?|al mediodia|\b(cada manana|todas las mananas|todos los dias|cada dia|diario)\b)/g;
+    cuerpo = base.replace(trozosTiempo, " ").replace(/\s+/g, " ").trim().replace(/^((que|de|para|a|me|avises|quiero|alarma|una|un|recordatorio|avisame|avisarme|recuerdame|recuerda|acuerdame|despiertame|despierta|ponme|pon)\s+)+/i, "").replace(/\s+(que|de|para|a|el|la|los|al)\s*$/i, "").trim();
   }
   const drv = esAlarma ? "alarma" : "recordatorio";
   const r2 = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), tipo: drv, txt: cuerpo || (drv === "alarma" ? "" : ""), t: cuando.t, rep: cuando.rep, hecho: false };
