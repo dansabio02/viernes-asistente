@@ -1415,7 +1415,21 @@ function destilarAprendizajes() {
    Tiempo natural: hoy/mañana/pasado mañana/día de la semana/en X minutos/horas/medio día. */
 let recordatorios = [];
 try { recordatorios = JSON.parse(localStorage.getItem("viernes_rec") || "[]"); } catch (e) { recordatorios = []; }
-function guardarRecordatorios() { try { localStorage.setItem("viernes_rec", JSON.stringify(recordatorios.slice(-40))); } catch (e) {} }
+function guardarRecordatorios() {
+  try { localStorage.setItem("viernes_rec", JSON.stringify(recordatorios.slice(-40))); } catch (e) {}
+  sincronizarNativo();
+}
+/* En la APK, cada alarma o recordatorio pendiente se programa en el teléfono (suena bloqueado) */
+function sincronizarNativo() {
+  if (!window.ViernesNativo) return;
+  let previos = [];
+  try { previos = JSON.parse(localStorage.getItem("viernes_nativo_ids") || "[]"); } catch (e) {}
+  const vigentes = recordatorios.filter((r2) => !r2.hecho && r2.t > Date.now());
+  const ids = vigentes.map((r2) => String(r2.id));
+  for (const id of previos) if (!ids.includes(id)) { try { window.ViernesNativo.cancelarAlarma(id); } catch (e) {} }
+  for (const r2 of vigentes) { try { window.ViernesNativo.programarAlarma(String(r2.id), r2.t, r2.txt || "", r2.rep === "daily"); } catch (e) {} }
+  try { localStorage.setItem("viernes_nativo_ids", JSON.stringify(ids)); } catch (e) {}
+}
 
 const SECS_DIA = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"];
 // Extrae CUÁNDO de la frase (texto ya normalizado, sin acentos ni signos)
@@ -2177,6 +2191,7 @@ function bindAjustes() {
   const btnRec = $("btnAgregarRec");
   if (btnRec) btnRec.addEventListener("click", agregarRecordatorioUI);
   renderRecordatorios();
+  sincronizarNativo();
   const soWire = $("setOido");
   if (soWire) soWire.addEventListener("change", () => {
     try { localStorage.setItem("viernes_escucha_cfg", JSON.stringify({ apagado: !soWire.checked })); } catch (e) {}
