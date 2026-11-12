@@ -39,6 +39,27 @@ public class MainActivity extends Activity {
         public boolean escuchando() {
             return VoiceService.activo;
         }
+
+        @JavascriptInterface
+        public void programarAlarma(String id, double t, String txt, boolean diario) {
+            try {
+                AlarmStore.agregar(MainActivity.this, id, (long) t, txt, diario);
+                AlarmScheduler.programar(MainActivity.this, id, (long) t, txt, diario);
+            } catch (Exception e) {
+                // Si falla el guardado, la página lo vuelve a intentar
+            }
+        }
+
+        @JavascriptInterface
+        public void cancelarAlarma(String id) {
+            AlarmStore.quitar(MainActivity.this, id);
+            AlarmScheduler.cancelar(MainActivity.this, id);
+        }
+
+        @JavascriptInterface
+        public String listarAlarmas() {
+            return AlarmStore.leer(MainActivity.this).toString();
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
