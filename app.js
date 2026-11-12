@@ -639,7 +639,10 @@ async function hablar(texto) {
   try {
     for (let i = 0; i < partes.length; i++) {
       if (miGen !== hablarGen) return; // una respuesta nueva cortó esta
-      const r = await fetch(WORKER_URL + "/tts?texto=" + encodeURIComponent(partes[i]));
+      const ctrl = new AbortController();
+      const tmo = setTimeout(() => ctrl.abort(), 9000);
+      let r;
+      try { r = await fetch(WORKER_URL + "/tts?texto=" + encodeURIComponent(partes[i]), { signal: ctrl.signal }); } finally { clearTimeout(tmo); }
       if (!r.ok) throw new Error("tts " + r.status);
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
@@ -647,7 +650,9 @@ async function hablar(texto) {
       audioActual = a;
       a.playbackRate = cfg.rate || 1; // velocidad del usuario
       await new Promise((res) => {
-        const fin = () => { URL.revokeObjectURL(url); if (audioActual === a) audioActual = null; res(); };
+        let hecho = false;
+        const vigia = setTimeout(() => fin(), 20000 + partes[i].length * 150);
+        const fin = () => { if (hecho) return; hecho = true; clearTimeout(vigia); URL.revokeObjectURL(url); if (audioActual === a) audioActual = null; res(); };
         a.onended = fin; a.onerror = fin;
         a.play().catch(fin);
       });
@@ -679,10 +684,14 @@ function sintetizar(texto, miGen) {
   const voces = synth.getVoices();
   const v = voces.find(x => x.name === cfg.browserVoice) || voces.find(x => x.lang && x.lang.startsWith(cfg.language.split("-")[0])) || voces[0];
   if (v) u.voice = v;
-  u.onend = u.onerror = () => {
-    if (miGen !== hablarGen) return;
+  let cerrado = false;
+  const liberar = () => {
+    if (cerrado || miGen !== hablarGen) return;
+    cerrado = true;
     speaking = false; busy = false; finHablaTime = Date.now(); reanudarEscucha();
   };
+  u.onend = u.onerror = liberar;
+  setTimeout(liberar, 6000 + texto.length * 110);
   try { synth.cancel(); } catch (e) {}
   setTimeout(() => {
     if (miGen !== hablarGen) return;
