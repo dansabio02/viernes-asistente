@@ -18,12 +18,14 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
+
 
       - name: Instalar plataforma y herramientas de Android
         run: |
-          yes | sdkmanager --licenses > /dev/null
-          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+          SDK="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          SDKM=$(ls -d "$SDK"/cmdline-tools/*/bin | head -1)/sdkmanager
+          yes | "$SDKM" --sdk_root="$SDK" --licenses > /dev/null
+          "$SDKM" --sdk_root="$SDK" "platforms;android-34" "build-tools;34.0.0"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
