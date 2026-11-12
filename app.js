@@ -441,7 +441,13 @@ async function activarMicrofono() {
   if (!recognition) { log("Reconocimiento no soportado", "error"); return; }
   listening = true; setEstado("listening");
   lastReconSenal = Date.now();
-  try { recognition.start(); } catch (e) { log("Error al iniciar micrófono: " + e.message, "error"); }
+  if (window.ViernesNativo) {
+    // App nativa: el micrófono lo lleva el servicio en primer plano (funciona con la pantalla bloqueada)
+    window.viernesNativoTexto = (t) => { if (t) procesarVoz(t); };
+    try { window.ViernesNativo.iniciarEscucha(); log("Escucha nativa activa (funciona con la pantalla bloqueada)", "ok"); } catch (e) { log("Escucha nativa: " + e.message, "error"); }
+  } else {
+    try { recognition.start(); } catch (e) { log("Error al iniciar micrófono: " + e.message, "error"); }
+  }
   $("btnPower").classList.add("active"); $("btnMic").classList.add("active");
   $("powerLabel").textContent = "ACTIVO";
   log("Escucha activa. Di «Viernes»…", "ok");
@@ -461,6 +467,7 @@ async function activarMicrofono() {
 }
 function desactivarMicrofono() {
   listening = false;
+  if (window.ViernesNativo) { try { window.ViernesNativo.detenerEscucha(); } catch (e) {} }
   if (recognition) { try { recognition.stop(); } catch (e) {} }
   setEstado("standby"); $("btnPower").classList.remove("active"); $("btnMic").classList.remove("active");
   $("powerLabel").textContent = "ACTIVAR";
@@ -1581,7 +1588,10 @@ function renderRecordatorios() {
     li.textContent = (r2.tipo === "alarma" ? "⏰ " : "🔔 ") + hora + " · " + (r2.txt || "Despertar") + (r2.rep === "daily" ? " (diario)" : "") + " ";
     const b = document.createElement("button");
     b.type = "button"; b.className = "link-btn tiny"; b.textContent = "Borrar";
-    b.addEventListener("click", () => { recordatorios = recordatorios.filter((x) => x.id !== r2.id); guardarRecordatorios(); renderRecordatorios(); });
+    b.addEventListener("click", () => {
+      if (window.ViernesNativo) { try { window.ViernesNativo.cancelarAlarma(r2.id); } catch (e) {} }
+      recordatorios = recordatorios.filter((x) => x.id !== r2.id); guardarRecordatorios(); renderRecordatorios();
+    });
     li.appendChild(b); ul.appendChild(li);
   }
 }
@@ -1593,7 +1603,9 @@ function agregarRecordatorioUI() {
   const t = new Date(); t.setHours(hh, mm, 0, 0);
   if (t.getTime() <= Date.now()) t.setDate(t.getDate() + 1);
   const diario = !!($("recDiario") || {}).checked;
-  recordatorios.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), tipo: "alarma", txt, t: t.getTime(), rep: diario ? "daily" : null, hecho: false });
+  const nueva = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), tipo: "alarma", txt, t: t.getTime(), rep: diario ? "daily" : null, hecho: false };
+  recordatorios.push(nueva);
+  if (window.ViernesNativo) { try { window.ViernesNativo.programarAlarma(nueva.id, nueva.t, txt, diario); } catch (e) {} }
   guardarRecordatorios(); renderRecordatorios();
   if ($("recTexto")) $("recTexto").value = "";
   if (window.Notification && Notification.permission === "default") Notification.requestPermission().catch(() => {});
