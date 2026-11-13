@@ -6,7 +6,7 @@ const DEFAULTS = {
   connectionMode: "auto", baseUrl: "https://api.groq.com/openai/v1", proxyBase: "",
   model: "openai/gpt-oss-120b", reasoning: "high", groqVisionModel: "meta-llama/llama-4-scout-17b-16e-instruct",
   maxTokens: 8192, webSearch: true, xSearch: false,
-  voiceEngine: "browser", xaiVoice: "eve", xaiLang: "es-MX", browserVoice: "", ttsVoz: "es-MX_DaliaNeural",
+  voiceEngine: "browser", xaiVoice: "eve", xaiLang: "es-MX", browserVoice: "", ttsVoz: "es-MX-DaliaNeural",
   rate: 1.0, pitch: 1.0, autoSpeak: true, sounds: true,
   userName: "Señor Daniel", altName: "Jefe", wakeWords: "viernes",
   language: "es-MX", followUp: 12, handsFree: true, autoStartMic: false,
@@ -638,14 +638,23 @@ async function hablar(texto) {
   while (resto.length > 190) { let c = resto.lastIndexOf(" ", 190); if (c < 80) c = 190; partes.push(resto.slice(0, c)); resto = resto.slice(c).trim(); }
   if (resto) partes.push(resto);
 
+  const voz = cfg.ttsVoz || "es-MX-DaliaNeural";
   const descargar = async (parte) => {
-    const ctrl = new AbortController();
-    const tmo = setTimeout(() => ctrl.abort(), 12000);
+    const hacer = async (ruta) => {
+      const ctrl = new AbortController();
+      const tmo = setTimeout(() => ctrl.abort(), 12000);
+      try {
+        const r = await fetch(WORKER_URL + ruta, { signal: ctrl.signal });
+        if (!r.ok) throw new Error("tts " + r.status);
+        return URL.createObjectURL(await r.blob());
+      } finally { clearTimeout(tmo); }
+    };
+    // Voz neural (Edge) primero; si falla o tarda, voz de Google
     try {
-      const r = await fetch(WORKER_URL + "/tts?texto=" + encodeURIComponent(parte), { signal: ctrl.signal });
-      if (!r.ok) throw new Error("tts " + r.status);
-      return URL.createObjectURL(await r.blob());
-    } finally { clearTimeout(tmo); }
+      return await hacer("/tts-edge?texto=" + encodeURIComponent(parte) + "&voz=" + encodeURIComponent(voz));
+    } catch (e) {
+      return await hacer("/tts?texto=" + encodeURIComponent(parte));
+    }
   };
 
   try {
@@ -2145,7 +2154,7 @@ function aplicarUI() {
   sv("setGroqVisionModel", cfg.groqVisionModel); sv("setMaxTokens", cfg.maxTokens);
   sc("setWebSearch", cfg.webSearch); sc("setXSearch", cfg.xSearch);
   sv("setVoiceEngine", cfg.voiceEngine); sv("setXaiVoice", cfg.xaiVoice);
-  sv("setXaiLang", cfg.xaiLang); sv("setBrowserVoice", cfg.browserVoice);
+  sv("setXaiLang", cfg.xaiLang); sv("setBrowserVoice", cfg.browserVoice); sv("setTtsVoz", cfg.ttsVoz);
   sv("setRate", cfg.rate); st("rateValue", cfg.rate.toFixed(2) + "×");
   sv("setPitch", cfg.pitch); st("pitchValue", cfg.pitch.toFixed(2));
   sc("setAutoSpeak", cfg.autoSpeak); sc("setSounds", cfg.sounds);
@@ -2190,7 +2199,7 @@ function bindAjustes() {
     setGroqVisionModel: v => cfg.groqVisionModel = v, setMaxTokens: v => cfg.maxTokens = parseInt(v)||4096,
     setWebSearch: v => cfg.webSearch = v, setXSearch: v => cfg.xSearch = v,
     setVoiceEngine: v => cfg.voiceEngine = v, setXaiVoice: v => cfg.xaiVoice = v,
-    setXaiLang: v => cfg.xaiLang = v, setBrowserVoice: v => cfg.browserVoice = v,
+    setXaiLang: v => cfg.xaiLang = v, setBrowserVoice: v => cfg.browserVoice = v, setTtsVoz: v => cfg.ttsVoz = v,
     setUserName: v => cfg.userName = v, setAltName: v => cfg.altName = v,
     setWakeWords: v => cfg.wakeWords = v, setLanguage: v => { cfg.language = v; if (recognition) recognition.lang = v; },
     setImageDetail: v => cfg.imageDetail = v, setMaxImage: v => cfg.maxImage = v,
