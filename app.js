@@ -6,7 +6,7 @@ const DEFAULTS = {
   connectionMode: "auto", baseUrl: "https://api.groq.com/openai/v1", proxyBase: "",
   model: "openai/gpt-oss-120b", reasoning: "high", groqVisionModel: "meta-llama/llama-4-scout-17b-16e-instruct",
   maxTokens: 8192, webSearch: true, xSearch: false,
-  voiceEngine: "browser", xaiVoice: "eve", xaiLang: "es-MX", browserVoice: "",
+  voiceEngine: "browser", xaiVoice: "eve", xaiLang: "es-MX", browserVoice: "", ttsVoz: "es-MX_DaliaNeural",
   rate: 1.0, pitch: 1.0, autoSpeak: true, sounds: true,
   userName: "Señor Daniel", altName: "Jefe", wakeWords: "viernes",
   language: "es-MX", followUp: 12, handsFree: true, autoStartMic: false,
@@ -631,46 +631,51 @@ async function hablar(texto) {
   if (synth) { try { synth.cancel(); } catch (e) {} }
   speaking = true; busy = true; setEstado("speaking");
   detenerEscuchaParaHablar();
+
+  // Trocear en bloques de ~380 caracteres (la voz neural admite 400 por petición)
   const partes = [];
   let resto = texto;
-  while (resto.length > 190) { let c = resto.lastIndexOf(" ", 190); if (c < 100) c = 190; partes.push(resto.slice(0, c)); resto = resto.slice(c).trim(); }
+  while (resto.length > 380) { let c = resto.lastIndexOf(" ", 380); if (c < 150) c = 380; partes.push(resto.slice(0, c)); resto = resto.slice(c).trim(); }
   if (resto) partes.push(resto);
-  let tocadas = 0;
-  try {
-    for (let i = 0; i < partes.length; i++) {
-      if (miGen !== hablarGen) return; // una respuesta nueva cortó esta
-      const ctrl = new AbortController();
-      const tmo = setTimeout(() => ctrl.abort(), 9000);
-      let r;
-      try { r = await fetch(WORKER_URL + "/tts?texto=" + encodeURIComponent(partes[i]), { signal: ctrl.signal }); } finally { clearTimeout(tmo); }
+
+  const voz = cfg.ttsVoz || "es-MX_DaliaNeural";
+  const descargar = async (parte) => {
+    const ctrl = new AbortController();
+    const tmo = setTimeout(() => ctrl.abort(), 15000);
+    try {
+      const r = await fetch(WORKER_URL + "/tts-edge?texto=" + encodeURIComponent(parte) + "&voz=" + encodeURIComponent(voz), { signal: ctrl.signal });
       if (!r.ok) throw new Error("tts " + r.status);
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
+      return URL.createObjectURL(await r.blob());
+    } finally { clearTimeout(tmo); }
+  };
+
+  try {
+    let sig = descargar(partes[0]);
+    for (let i = 0; i < partes.length; i++) {
+      if (miGen !== hablarGen) return;
+      const url = await sig;
+      if (miGen !== hablarGen) { URL.revokeObjectURL(url); return; }
+      // Precargar el siguiente bloque mientras suena este: sin pausas de red
+      if (i + 1 < partes.length) sig = descargar(partes[i + 1]);
       const a = new Audio(url);
       audioActual = a;
-      a.playbackRate = cfg.rate || 1; // velocidad del usuario
+      a.playbackRate = cfg.rate || 1;
       await new Promise((res) => {
         let hecho = false;
-        const vigia = setTimeout(() => fin(), 20000 + partes[i].length * 150);
+        const vigia = setTimeout(() => fin(), 30000 + partes[i].length * 120);
         const fin = () => { if (hecho) return; hecho = true; clearTimeout(vigia); URL.revokeObjectURL(url); if (audioActual === a) audioActual = null; res(); };
         a.onended = fin; a.onerror = fin;
         a.play().catch(fin);
       });
-      if (miGen !== hablarGen) return;
-      tocadas++;
     }
-  } catch (e) {}
-  if (miGen !== hablarGen) return;
-  if (tocadas >= partes.length) {
+    if (miGen !== hablarGen) return;
     speaking = false; busy = false; finHablaTime = Date.now();
     reanudarEscucha();
-    return;
+  } catch (e) {
+    // La voz neural no estuvo disponible: respaldo con la del navegador
+    if (miGen !== hablarGen) return;
+    sintetizar(texto, miGen);
   }
-  // Fallback a la voz del navegador SOLO con el texto que falta (nunca repite lo ya dicho)
-  const restantes = partes.slice(tocadas).join(" ");
-  if (tocadas > 0 && restantes) sintetizar(restantes, miGen);
-  else if (tocadas > 0) { speaking = false; busy = false; finHablaTime = Date.now(); reanudarEscucha(); }
-  else sintetizar(texto, miGen);
 }
 
 /* Síntesis del navegador con asentamiento: en Android Chrome, speak() inmediato
@@ -2141,7 +2146,7 @@ function aplicarUI() {
   sv("setGroqVisionModel", cfg.groqVisionModel); sv("setMaxTokens", cfg.maxTokens);
   sc("setWebSearch", cfg.webSearch); sc("setXSearch", cfg.xSearch);
   sv("setVoiceEngine", cfg.voiceEngine); sv("setXaiVoice", cfg.xaiVoice);
-  sv("setXaiLang", cfg.xaiLang); sv("setBrowserVoice", cfg.browserVoice);
+  sv("setXaiLang", cfg.xaiLang); sv("setBrowserVoice", cfg.browserVoice); sv("setTtsVoz", cfg.ttsVoz);
   sv("setRate", cfg.rate); st("rateValue", cfg.rate.toFixed(2) + "×");
   sv("setPitch", cfg.pitch); st("pitchValue", cfg.pitch.toFixed(2));
   sc("setAutoSpeak", cfg.autoSpeak); sc("setSounds", cfg.sounds);
@@ -2186,7 +2191,7 @@ function bindAjustes() {
     setGroqVisionModel: v => cfg.groqVisionModel = v, setMaxTokens: v => cfg.maxTokens = parseInt(v)||4096,
     setWebSearch: v => cfg.webSearch = v, setXSearch: v => cfg.xSearch = v,
     setVoiceEngine: v => cfg.voiceEngine = v, setXaiVoice: v => cfg.xaiVoice = v,
-    setXaiLang: v => cfg.xaiLang = v, setBrowserVoice: v => cfg.browserVoice = v,
+    setXaiLang: v => cfg.xaiLang = v, setBrowserVoice: v => cfg.browserVoice = v, setTtsVoz: v => cfg.ttsVoz = v,
     setUserName: v => cfg.userName = v, setAltName: v => cfg.altName = v,
     setWakeWords: v => cfg.wakeWords = v, setLanguage: v => { cfg.language = v; if (recognition) recognition.lang = v; },
     setImageDetail: v => cfg.imageDetail = v, setMaxImage: v => cfg.maxImage = v,
