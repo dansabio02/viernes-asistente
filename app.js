@@ -379,7 +379,7 @@ function acumularFinal(texto, conf) {
 function programarVuelco() {
   clearTimeout(bufferTimer);
   // Fusión adaptativa: mientras Viernes piensa, Chrome suele partir más la frase — ventana más larga
-  bufferTimer = setTimeout(volcarBuffer, busy ? 900 : 550);
+  bufferTimer = setTimeout(volcarBuffer, busy ? 600 : 350);
 }
 function volcarBuffer() {
   const completo = (bufferFin || "").trim();
@@ -2154,7 +2154,7 @@ function aplicarUI() {
   if (soPop) {
     let oidoOff = false;
     try {
-      oidoOff = (JSON.parse(localStorage.getItem("viernes_escucha_cfg") || "{}").apagado === true) ||
+      oidoOff = (JSON.parse(localStorage.getItem("viernes_escucha_cfg") || "{}").apagado !== false) ||
                 Date.now() < parseInt(localStorage.getItem("viernes_oido_bloqueado") || "0", 10);
     } catch (e) {}
     soPop.checked = !oidoOff;

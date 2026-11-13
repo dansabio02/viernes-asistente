@@ -39,7 +39,7 @@
 "use strict";
 (() => {
 
-const CFG_DEFAULT = { margenSnr: 6, bandaMin: 0.42, scoreMin: 0.55, marcoMs: 35, apagado: false };
+const CFG_DEFAULT = { margenSnr: 6, bandaMin: 0.42, scoreMin: 0.55, marcoMs: 35, apagado: true };
 let cfg = { ...CFG_DEFAULT };
 try { Object.assign(cfg, JSON.parse(localStorage.getItem("viernes_escucha_cfg") || "{}")); } catch (e) {}
 
