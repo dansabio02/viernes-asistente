@@ -640,9 +640,9 @@ async function hablar(texto) {
 
   const voz = cfg.ttsVoz || "es-MX-DaliaNeural";
   const descargar = async (parte) => {
-    const hacer = async (ruta) => {
+    const pedir = async (ruta) => {
       const ctrl = new AbortController();
-      const tmo = setTimeout(() => ctrl.abort(), 12000);
+      const tmo = setTimeout(() => ctrl.abort(), 15000);
       try {
         const r = await fetch(WORKER_URL + ruta, { signal: ctrl.signal });
         if (!r.ok) throw new Error("tts " + r.status);
@@ -651,28 +651,31 @@ async function hablar(texto) {
     };
     // Voz neural (Edge) primero; si falla o tarda, voz de Google
     try {
-      return await hacer("/tts-edge?texto=" + encodeURIComponent(parte) + "&voz=" + encodeURIComponent(voz));
+      return await pedir("/tts-edge?texto=" + encodeURIComponent(parte) + "&voz=" + encodeURIComponent(voz));
     } catch (e) {
-      return await hacer("/tts?texto=" + encodeURIComponent(parte));
+      return await pedir("/tts?texto=" + encodeURIComponent(parte));
     }
   };
 
+  // Descargar TODOS los bloques en paralelo: la voz fluye sin pausas de red.
+  // Un solo <audio> reutilizado (más estable en el WebView de la app).
+  const descargas = partes.map((p) => descargar(p).catch(() => null));
+  const a = new Audio();
+  a.playbackRate = cfg.rate || 1;
+  audioActual = a;
+
   try {
-    let sig = descargar(partes[0]);
     for (let i = 0; i < partes.length; i++) {
       if (miGen !== hablarGen) return;
-      const url = await sig;
-      if (miGen !== hablarGen) { URL.revokeObjectURL(url); return; }
-      // Precargar el siguiente bloque mientras suena este: sin pausas de red
-      if (i + 1 < partes.length) sig = descargar(partes[i + 1]);
-      const a = new Audio(url);
-      audioActual = a;
-      a.playbackRate = cfg.rate || 1;
+      const url = await descargas[i];
+      if (miGen !== hablarGen) { if (url) URL.revokeObjectURL(url); return; }
+      if (!url) continue; // bloque falló: saltar sin trabarse
       await new Promise((res) => {
         let hecho = false;
-        const vigia = setTimeout(() => fin(), 25000 + partes[i].length * 140);
-        const fin = () => { if (hecho) return; hecho = true; clearTimeout(vigia); URL.revokeObjectURL(url); if (audioActual === a) audioActual = null; res(); };
+        const vigia = setTimeout(() => fin(), 30000 + partes[i].length * 140);
+        const fin = () => { if (hecho) return; hecho = true; clearTimeout(vigia); URL.revokeObjectURL(url); res(); };
         a.onended = fin; a.onerror = fin;
+        a.src = url;
         a.play().catch(fin);
       });
     }
