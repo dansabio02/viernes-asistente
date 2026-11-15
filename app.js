@@ -17,6 +17,8 @@ let passUnlocked = false;
 let passUnlockTime = 0;
 let cfg = { ...DEFAULTS };
 let recognition = null, listening = false, speaking = false, busy = false;
+/* El oído personal (vozid.js) consulta esto para NO grabar la voz de VIERNES */
+window.ViernesSoniendo = () => speaking;
 let ultimoTranscript = "", ultimoTranscriptTime = 0, finHablaTime = 0, audioActual = null, pendientePeticion = 0;
 let hablarGen = 0, bufferFin = "", bufferTimer = null, textoEnCurso = "", bufferConf = 0, bufferConfN = 0;
 let confHist = []; // confianza de frases procesadas: si el motor es de por sí impreciso, la puerta se desactiva sola
@@ -32,7 +34,7 @@ function confSana(conf) {
   return media >= 0.5; // motor que acostumbra estar certero: vale la pena revisar los atípicos
 }
 let brainGen = 0; // token del render del cerebro (permite reemplazo en caliente)
-let historial = [], contextoImagen = null, cameraStream = null;
+let historial = [], contextoImagen = null, cameraStream = null, aprendiendoVoz = false;
 let synth = window.speechSynthesis;
 
 const $ = (id) => document.getElementById(id);
@@ -386,7 +388,7 @@ function programarVuelco() {
   // Fusión adaptativa: mientras Viernes piensa, Chrome suele partir más la frase — ventana más larga
   bufferTimer = setTimeout(volcarBuffer, busy ? 600 : 350);
 }
-function volcarBuffer() {
+async function volcarBuffer() {
   const completo = (bufferFin || "").trim();
   const conf = bufferConf, confN = bufferConfN;
   bufferFin = ""; bufferConf = 0; bufferConfN = 0;
@@ -409,6 +411,17 @@ function volcarBuffer() {
   // Variación de la misma frase mientras Viernes piensa: descartar (evita doble respuesta)
   if (busy && textoEnCurso && textoSimilar(completo, textoEnCurso)) return;
   ultimoTranscript = clave; ultimoTranscriptTime = ahora;
+  /* OÍDO PERSONAL (Voice ID estilo Echo): si está activo, la frase solo
+     cuenta si es la voz del jefe. Fallo o duda → pasa (nunca queda sordo). */
+  if (aprendiendoVoz) return; // mientras enseña su voz, no escucha comandos
+  if (window.ViernesVozId && ViernesVozId.activo()) {
+    setEstado("thinking");
+    const jefe = await ViernesVozId.esElJefe();
+    const r = ViernesVozId.ultimoResultado || {};
+    if (typeof r.sim === "number") log("Oído personal: similitud " + r.sim.toFixed(2) + (jefe ? " — es su voz" : " — VOZ AJENA, ignorada"), jefe ? "ok" : "warn");
+    else log("Oído personal sin señal (" + (r.razon || "?") + "): deja pasar", "warn");
+    if (!jefe) { setEstado(listening ? "listening" : "standby"); return; }
+  }
   procesarVoz(completo);
 }
 function textoSimilar(a, b) {
@@ -2226,6 +2239,12 @@ function aplicarUI() {
     } catch (e) {}
     soPop.checked = !oidoOff;
   }
+  // Oído personal (Voice ID)
+  const vzOn = $("setVozId");
+  if (vzOn) { try { vzOn.checked = localStorage.getItem("viernes_vozid_on") === "1"; } catch (e) { vzOn.checked = false; } }
+  const vzUm = $("setVozIdUmbral");
+  if (vzUm) { try { vzUm.value = localStorage.getItem("viernes_vozid_umbral") || "normal"; } catch (e) {} }
+  refrescarVozIdEstado();
   sv("setImageDetail", cfg.imageDetail); sv("setMaxImage", cfg.maxImage);
   sc("setAutoAttach", cfg.autoAttach); sc("setMirror", cfg.mirror);
   sc("setMemory", cfg.memory); sc("setRememberKey", cfg.rememberKey);
@@ -2268,6 +2287,25 @@ function bindAjustes() {
     const el = $(id); if (!el) continue;
     el.addEventListener("change", () => { cfg[key] = el.checked; save(); });
   }
+  // Oído personal (Voice ID): interruptor, rigor, enseñar y borrar
+  const vzOnW = $("setVozId");
+  if (vzOnW) vzOnW.addEventListener("change", () => {
+    try { localStorage.setItem("viernes_vozid_on", vzOnW.checked ? "1" : "0"); } catch (e) {}
+    if (vzOnW.checked && window.ViernesVozId) {
+      toast("Preparando el oído personal…");
+      ViernesVozId.iniciar().then((ok) => { log(ok ? "Oído personal activado" : "Oído personal sin micrófono — queda inofensivo", ok ? "ok" : "warn"); refrescarVozIdEstado(); });
+    } else if (window.ViernesVozId) { ViernesVozId.cerrar(); log("Oído personal desactivado", "warn"); }
+    refrescarVozIdEstado();
+  });
+  const vzUmW = $("setVozIdUmbral");
+  if (vzUmW) vzUmW.addEventListener("change", () => { try { localStorage.setItem("viernes_vozid_umbral", vzUmW.value); } catch (e) {} refrescarVozIdEstado(); });
+  const vzEnW = $("btnVozIdEnsenar");
+  if (vzEnW) vzEnW.addEventListener("click", ensenarVozUI);
+  const vzBoW = $("btnVozIdBorrar");
+  if (vzBoW) vzBoW.addEventListener("click", () => {
+    if (!window.ViernesVozId) return;
+    ViernesVozId.borrar(); log("Perfil de voz borrado", "warn"); toast("Su voz quedó borrada del teléfono."); refrescarVozIdEstado();
+  });
   // Oído anti-ruido (Echo): interruptor propio (localStorage viernes_escucha_cfg)
   const btnRec = $("btnAgregarRec");
   if (btnRec) btnRec.addEventListener("click", agregarRecordatorioUI);
@@ -2320,6 +2358,34 @@ function bindAjustes() {
   if (pp) pp.addEventListener("change", () => { cfg.passphrase = pp.value.trim(); save(); });
   const pt = $("setPassTimeout");
   if (pt) pt.addEventListener("input", () => { cfg.passTimeout = parseInt(pt.value) || 10; const o = $("passTimeoutValue"); if (o) o.textContent = cfg.passTimeout + " min"; save(); });
+}
+
+/* ==== OÍDO PERSONAL (Voice ID) — interfaz en Ajustes ==== */
+function refrescarVozIdEstado() {
+  const el = $("vozIdEstado"); if (!el || !window.ViernesVozId) return;
+  const e = ViernesVozId.estado();
+  if (!e.encendido) { el.textContent = "Estado: desactivado"; el.style.color = "var(--muted)"; return; }
+  if (!e.tienePerfil) { el.textContent = "Estado: active y enseñe su voz (3 muestras)"; el.style.color = "var(--amber, orange)"; return; }
+  el.textContent = "Estado: activo — su voz inscrita (" + e.nMuestras + " muestras, " + new Date(e.fecha).toLocaleDateString("es-MX") + ")";
+  el.style.color = "var(--green)";
+}
+async function ensenarVozUI() {
+  if (!window.ViernesVozId) return;
+  if (speaking) { toast("Espere a que termine de hablar y vuelva a intentarlo."); return; }
+  try { localStorage.setItem("viernes_vozid_on", "1"); } catch (e) {}
+  const so = $("setVozId"); if (so) so.checked = true;
+  toast("Preparando el oído personal…");
+  const r = await ViernesVozId.enseniar((i, ms, reintento) => {
+    toast((reintento ? "Otra vez — " : "") + "Muestra " + i + " de 3: hable normal unos 5 segundos…");
+  });
+  if (r.ok) {
+    log("Oído personal: voz inscrita (" + r.n + " muestras)", "ok");
+    hablarLocal(tratoInicio("confirma") + ", aprendí su voz. Desde ahora solo le atiendo a usted.");
+  } else {
+    log("Oído personal: " + r.error, "error");
+    toast("No pude aprender su voz: " + r.error);
+  }
+  refrescarVozIdEstado();
 }
 
 /* ==== RECONOCIMIENTO DE HABLANTE (Picovoice Eagle) ==== */

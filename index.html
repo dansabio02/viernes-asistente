@@ -246,6 +246,28 @@
             <div class="info-box">
               <svg><use href="#i-mic"/></svg>
               <div class="info-body">
+                <p class="info-title">Oído personal — solo atiende su voz (Voice ID)</p>
+                <p>Como los Echo de Amazon: aprende la firma de su voz y descarta lo que suena de la TV, otro celular o extraños. Sin llaves; su voz no sale del teléfono.</p>
+                <label class="check-row compact"><input type="checkbox" id="setVozId"><span>Activar oído personal</span></label>
+                <div class="two-fields">
+                  <div class="field-group">
+                    <label for="setVozIdUmbral">Rigor</label>
+                    <select id="setVozIdUmbral"><option value="laxo">Laxo — descarta menos</option><option value="normal">Normal (recomendado)</option><option value="estricto">Estricto — descarta más</option></select>
+                  </div>
+                  <div class="field-group">
+                    <label>&nbsp;</label>
+                    <button class="btn btn-secondary" id="btnVozIdEnsenar" type="button"><svg><use href="#i-volume"/></svg> Enseñar mi voz</button>
+                  </div>
+                </div>
+                <div class="settings-actions-row">
+                  <button class="btn btn-ghost" id="btnVozIdBorrar" type="button"><svg><use href="#i-trash"/></svg> Borrar mi voz</button>
+                </div>
+                <p id="vozIdEstado" class="pass-estado">Estado: desactivado</p>
+              </div>
+            </div>
+            <div class="info-box">
+              <svg><use href="#i-mic"/></svg>
+              <div class="info-body">
                 <p class="info-title">Reconocimiento de hablante (Picovoice Eagle)</p>
                 <p>Identifica quién habla. Necesita un AccessKey gratuito de <a href="https://console.picovoice.ai" target="_blank" rel="noopener">console.picovoice.ai</a>.</p>
                 <div class="field-group">
@@ -398,6 +420,7 @@
   <script src="outlook.js"></script>
   <script src="memoria.js"></script>
   <script src="escucha.js"></script>
+  <script src="vozid.js"></script>
   <script src="app.js"></script>
   <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});</script>
 </body>

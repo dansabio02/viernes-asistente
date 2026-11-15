@@ -1,6 +1,6 @@
 // Service Worker: la app abre instantáneo, pero los archivos locales
 // siempre se actualizan desde la red (así los arreglos llegan al instante).
-const CACHE = "viernes-v5";
+const CACHE = "viernes-v6";
 const ASSETS = ["./", "index.html", "icon.svg", "icon-192.png", "icon-512.png", "manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
