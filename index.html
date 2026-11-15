@@ -230,6 +230,13 @@
               <div class="field-group"><label>Escucha</label><label class="check-row compact"><input type="checkbox" id="setHandsFree"><span>Escucha continua</span></label><label class="check-row compact"><input type="checkbox" id="setOido"><span>Oído anti-ruido (Echo)</span></label><label class="check-row compact"><input type="checkbox" id="setAutoStartMic"><span>Activar al abrir</span></label></div>
               <div class="field-group"><label>Alarmas y recordatorios</label><input type="time" id="recHora"><input type="text" id="recTexto" placeholder="Texto (ej. tomar medicina)" autocomplete="off"><label class="check-row compact"><input type="checkbox" id="recDiario"><span>Repetir cada día</span></label><button class="btn btn-secondary" id="btnAgregarRec" type="button">Agregar alarma</button><ul id="recLista" class="rec-list"></ul></div>
             </div>
+            <div class="field-group">
+              <label for="setEscuchaModo">Escucha continua: qué se atiende</label>
+              <select id="setEscuchaModo">
+                <option value="despertar">Solo con «Viernes» (recomendado)</option>
+                <option value="libre">Todo lo que se hable</option>
+              </select>
+            </div>
             <div class="info-box amber">
               <svg><use href="#i-shield"/></svg>
               <div class="info-body">

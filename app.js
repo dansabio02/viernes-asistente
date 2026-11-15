@@ -9,6 +9,7 @@ const DEFAULTS = {
   voiceEngine: "browser", xaiVoice: "eve", xaiLang: "es-MX", browserVoice: "", ttsVoz: "es-MX-DaliaNeural",
   rate: 1.0, pitch: 1.0, autoSpeak: true, sounds: true,
   userName: "Señor Daniel", altName: "Jefe", wakeWords: "viernes",
+  escuchaModo: "despertar",
   language: "es-MX", followUp: 12, handsFree: true, autoStartMic: false,
   cameraDevice: "", imageDetail: "auto", maxImage: "1280", autoAttach: false, mirror: false, memory: true,
   passLock: false, passphrase: "papá llegó", passTimeout: 10, outlookPrimero: false
@@ -596,9 +597,26 @@ function procesarVoz(texto) {
     }
     enviarTexto(cmd);
   } else if (cfg.handsFree) {
-    // ESCUCHA CONTINUA (config. por defecto): procesar todo lo que se diga,
-    // sin «Viernes» — pero NO los blips: una sola palabra corta suele ser
-    // un sonido mal transcrito (portazo, golpe, copa), no una petición.
+    /* ESCUCHA CONTINUA a lo Echo: el filtro ESTRUCTURAL es la palabra de
+       activación. Por defecto («despertar»), sin «Viernes» no se atiende
+       nada fuera de la ventana de conversación: la TV, el celular y los
+       ruidos transcritos quedan fuera de raíz, no depende del micrófono.
+       «libre» = el comportamiento anterior (atiende todo). */
+    const modo = String(cfg.escuchaModo || "despertar");
+    if (modo !== "libre") {
+      // Ventana de conversación: dijo solo «Viernes» y se espera la petición
+      if (Date.now() - pendientePeticion < 12000) {
+        pendientePeticion = 0;
+        if (!verificarPassphrase(texto)) { setEstado("listening"); toast("🔒 Bloqueado. Diga la frase de acceso."); return; }
+        enviarTexto(texto);
+        return;
+      }
+      log("Escucha continua: ignorado «" + n.slice(0, 44) + "» — sin palabra de activación", "warn");
+      return;
+    }
+    // MODO LIBRE: procesar todo lo que se diga, sin «Viernes» — pero NO los
+    // blips: una sola palabra corta suele ser un sonido mal transcrito
+    // (portazo, golpe, copa), no una petición.
     if (palabras.length < 2 && n.replace(/\s/g, "").length < 8) {
       log("Escucha: blip descartado («" + n + "»)", "warn");
       return;
@@ -2245,6 +2263,7 @@ function aplicarUI() {
   sv("setUserName", cfg.userName); sv("setAltName", cfg.altName);
   sv("setWakeWords", cfg.wakeWords); sv("setLanguage", cfg.language);
   sv("setFollowUp", cfg.followUp); st("followUpValue", cfg.followUp + " s");
+  sv("setEscuchaModo", cfg.escuchaModo);
   sc("setHandsFree", cfg.handsFree); sc("setAutoStartMic", cfg.autoStartMic);
   // Estado del oído anti-ruido: apagado si el usuario lo puso así o si quedó bloqueado 24 h por conflicto
   const soPop = $("setOido");
@@ -2304,6 +2323,9 @@ function bindAjustes() {
     const el = $(id); if (!el) continue;
     el.addEventListener("change", () => { cfg[key] = el.checked; save(); });
   }
+  // Escucha continua: modo estructural (palabra de activación) o libre
+  const sModoW = $("setEscuchaModo");
+  if (sModoW) sModoW.addEventListener("change", () => { cfg.escuchaModo = sModoW.value; save(); log("Escucha continua: " + (sModoW.value === "libre" ? "atiende todo lo que se hable" : "solo con «Viernes»"), "ok"); });
   // Oído personal (Voice ID): interruptor, rigor, enseñar y borrar
   const vzOnW = $("setVozId");
   if (vzOnW) vzOnW.addEventListener("change", () => {

@@ -7,7 +7,7 @@
    celular, otra persona), la frase se descarta y VIERNES
    no responde.
    Motor: NeXt-TDNN (verificación de hablante) corriendo en el
-   navegador con onnxruntime-web; modelo "mobile-128" (~5 MB,
+   navegador con onnxruntime-web; modelo "standard-128" (~7.5 MB,
    descargado una vez y guardado en caché). Sin llaves ni
    cuentas; la voz NUNCA sale del teléfono.
    FILOSOFÍA FAIL-OPEN: si falta el modelo, el micrófono o hay
@@ -28,7 +28,7 @@
 const LS_PERFIL = "viernes_vozid";
 const LS_ON = "viernes_vozid_on";
 const LS_UMBRAL = "viernes_vozid_umbral";
-const MODELO = "mobile-128";            // NeXt-TDNN liviano (~5 MB)
+const MODELO = "standard-128";          // NeXt-TDNN compacto (~7.5 MB, más preciso que el mobile "light")
 const URL_ORT = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.16.3/dist/ort.min.js";
 const URL_SV = "https://cdn.jsdelivr.net/npm/@jaehyun-ko/speaker-verification@5.0.0/dist/speaker-verification.js";
 const UMBRALES = { laxo: 0.38, normal: 0.48, estricto: 0.58 };
@@ -42,10 +42,14 @@ let ring = null, ringPos = 0, pausado = false;
 let ultimo = null;
 
 /* ── Perfil y ajustes ── */
+/* El perfil queda ligado al modelo: si el modelo cambia, las firmas
+   viejas son de otra dimensión y no comparan — se exige re-inscripción. */
 function perfil() {
   try {
     const p = JSON.parse(localStorage.getItem(LS_PERFIL) || "null");
-    return (p && Array.isArray(p.muestras) && p.muestras.length) ? p : null;
+    if (!(p && Array.isArray(p.muestras) && p.muestras.length)) return null;
+    if (p.modelo && p.modelo !== MODELO) return null; // firma de otro motor
+    return p;
   } catch (e) { return null; }
 }
 function guardarPerfil(p) { try { localStorage.setItem(LS_PERFIL, JSON.stringify(p)); } catch (e) {} }
@@ -88,7 +92,7 @@ async function abrir() {
     // Techo de 8 s: un permiso sin responder NUNCA puede dejar a VIERNES colgado
     stream = await Promise.race([
       navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true }
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: { ideal: true } }
       }),
       new Promise((_, rej) => setTimeout(() => rej(new Error("permiso tardó")), 8000)),
     ]);
@@ -226,30 +230,33 @@ async function decidir(p) {
       new Promise((_, rej) => setTimeout(() => rej(new Error("modelo tardó")), 30000)),
     ]);
   } catch (e) { failSesion = true; ultimo = { razon: "motor caído" }; return true; }
-  // Dos ventanas: la larga (contexto) y la corta (lo más reciente). Vale la mejor.
-  let mejor = -1;
-  for (const segs of [SEG_VERIFICAR, 3.5]) {
+  // Dos ventanas verificadas EN PARALELO (larga y corta): vale la mejor
+  // similitud y se hace en el tiempo de una sola, no la suma de ambas.
+  const ventanas = [SEG_VERIFICAR, 3.5].map((segs) => (async () => {
     const seg = segmentoVoz(segs);
-    if (!seg || seg.length < ctxAudio.sampleRate * 1.5) continue; // muy corto: no es fiable
-    try {
-      const r = await Promise.race([
-        verificador.getEmbedding(wav16k(seg, ctxAudio.sampleRate)),
-        new Promise((_, rej) => setTimeout(() => rej(new Error("verificación tardó")), 4000)),
-      ]);
-      if (!r || !r.embedding) continue;
-      let mejorMuestra = -1;
-      for (const m of p.muestras) {
-        const s = verificador.compareEmbeddings(r.embedding, new Float32Array(m));
-        if (s > mejorMuestra) mejorMuestra = s;
-      }
-      if (mejorMuestra > mejor) {
-        mejor = mejorMuestra;
-        ultimo = { sim: mejorMuestra, umbral: umbral(), embedding: Array.from(r.embedding) };
-      }
-    } catch (e) { /* ventana fallida: probamos la otra */ }
+    if (!seg || seg.length < ctxAudio.sampleRate * 1.5) return null; // muy corto: no es fiable
+    const r = await Promise.race([
+      verificador.getEmbedding(wav16k(seg, ctxAudio.sampleRate)),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("verificación tardó")), 4000)),
+    ]);
+    if (!r || !r.embedding) return null;
+    let mejorMuestra = -1;
+    for (const m of p.muestras) {
+      const s = verificador.compareEmbeddings(r.embedding, new Float32Array(m));
+      if (s > mejorMuestra) mejorMuestra = s;
+    }
+    return { sim: mejorMuestra, embedding: r.embedding };
+  })());
+  const rs = await Promise.allSettled(ventanas);
+  let mejor = -1, mejorEmb = null;
+  for (const r of rs) {
+    if (r.status === "fulfilled" && r.value && r.value.sim > mejor) {
+      mejor = r.value.sim;
+      mejorEmb = r.value.embedding;
+    }
   }
   if (mejor < 0) { ultimo = { razon: "sin voz clara" }; return true; }
-  ultimo.umbral = umbral();
+  ultimo = { sim: mejor, umbral: umbral(), embedding: Array.from(mejorEmb) };
   return mejor >= umbral();
 }
 
@@ -278,7 +285,7 @@ async function enseniar(aviso) {
     }
     if (!hecha) return { ok: false, error: "no se escuchó su voz en la muestra " + i };
   }
-  guardarPerfil({ t: Date.now(), muestras });
+  guardarPerfil({ t: Date.now(), modelo: MODELO, muestras });
   failSesion = false; // voz recién enseñada: sesión nueva y sana
   return { ok: true, n: muestras.length };
 }
@@ -319,7 +326,7 @@ const _internos = {
   recortarSilencio, wav16k, segmentoVoz,
   ponerRing(arr, rate) { ring = arr; ctxAudio = { sampleRate: rate }; ringPos = 0; },
   limpiarRing() { ring = null; ctxAudio = null; },
-  ponerPerfil(muestras) { guardarPerfil({ t: Date.now(), muestras }); },
+  ponerPerfil(muestras) { guardarPerfil({ t: Date.now(), modelo: MODELO, muestras }); },
   quitarPerfil() { try { localStorage.removeItem(LS_PERFIL); } catch (e) {} },
   ponerVerificador(v) { verificador = v; modoMock = true; cargando = Promise.resolve(v); },
   quitarMock() { verificador = null; modoMock = false; cargando = null; },
