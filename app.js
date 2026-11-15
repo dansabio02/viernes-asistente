@@ -34,7 +34,7 @@ function confSana(conf) {
   return media >= 0.5; // motor que acostumbra estar certero: vale la pena revisar los atípicos
 }
 let brainGen = 0; // token del render del cerebro (permite reemplazo en caliente)
-let historial = [], contextoImagen = null, cameraStream = null, aprendiendoVoz = false;
+let historial = [], contextoImagen = null, cameraStream = null, aprendiendoVoz = false, avisoValvulaVoz = false;
 let synth = window.speechSynthesis;
 
 const $ = (id) => document.getElementById(id);
@@ -424,9 +424,19 @@ async function volcarBuffer() {
       setEstado("thinking");
       const jefe = await ViernesVozId.esElJefe();
       const r = ViernesVozId.ultimoResultado || {};
-      if (typeof r.sim === "number") log("Oído personal: similitud " + r.sim.toFixed(2) + (jefe ? " — es su voz" : " — VOZ AJENA, ignorada"), jefe ? "ok" : "warn");
-      else log("Oído personal sin señal (" + (r.razon || "?") + "): deja pasar", "warn");
-      if (!jefe) { setEstado(listening ? "listening" : "standby"); return; }
+      if (typeof r.sim === "number") {
+        if (jefe) log("Oído personal: similitud " + r.sim.toFixed(2) + " — es su voz", "ok");
+        else log("Oído personal: similitud " + r.sim.toFixed(2) + " — no reconoció su voz; si era usted, enséñele su voz otra vez o baje el rigor", "warn");
+      } else log("Oído personal sin señal (" + (r.razon || "?") + "): deja pasar", "warn");
+      if (!jefe) {
+        if (ViernesVozId.valvula && !avisoValvulaVoz) {
+          avisoValvulaVoz = true;
+          toast("El oído personal se apagó por seguridad: no reconocía su voz. Puede reactivarlo en Ajustes.");
+          log("Válvula del oído personal: apagado automático", "warn");
+        }
+        setEstado(listening ? "listening" : "standby");
+        return;
+      }
     } catch (e) { log("Oído personal falló (" + e.message + "): deja pasar", "warn"); }
   }
   procesarVoz(completo);

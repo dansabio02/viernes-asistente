@@ -31,7 +31,7 @@ const LS_UMBRAL = "viernes_vozid_umbral";
 const MODELO = "mobile-128";            // NeXt-TDNN liviano (~5 MB)
 const URL_ORT = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.16.3/dist/ort.min.js";
 const URL_SV = "https://cdn.jsdelivr.net/npm/@jaehyun-ko/speaker-verification@5.0.0/dist/speaker-verification.js";
-const UMBRALES = { laxo: 0.45, normal: 0.58, estricto: 0.68 };
+const UMBRALES = { laxo: 0.38, normal: 0.48, estricto: 0.58 };
 const SEG_RING = 12;                    // segundos de audio conservados
 const SEG_VERIFICAR = 6;                // ventana que se verifica
 const SEG_MUESTRA = 5;                  // segundos por muestra de inscripción
@@ -180,13 +180,43 @@ function wav16k(pcm, rate) {
 
 /* ── Verificación: ¿esta voz es la del jefe? ── */
 let verificando = false;
+let rechazos = [];       // marcas de tiempo de rechazos recientes
+let valvula = false;     // válvula de seguridad activada (auto-apagado)
+const VALVULA_N = 3, VALVULA_MS = 90000;
 async function esElJefe() {
   const p = perfil();
   if (!encendido() || !p || failSesion) { ultimo = { razon: "inactivo" }; return true; }
   if (verificando) { ultimo = { razon: "verificando otra" }; return true; } // sin cola: la escucha no espera
   verificando = true;
-  try { return await decidir(p); }
-  finally { verificando = false; }
+  try {
+    const jefe = await decidir(p);
+    if (jefe) {
+      rechazos = [];
+      if (ultimo && typeof ultimo.sim === "number") aprenderPerfil(p, ultimo.sim);
+    } else {
+      rechazos.push(Date.now());
+      rechazos = rechazos.filter((t) => Date.now() - t < VALVULA_MS);
+      if (rechazos.length >= VALVULA_N) {
+        // VÁLVULA: si el filtro rechaza todo, se apaga él mismo y VIERNES vuelve a oírlo a TODO
+        failSesion = true; valvula = true; rechazos = [];
+      }
+    }
+    return jefe;
+  } finally { verificando = false; }
+}
+/* AUTO-APRENDIZAJE: cada aceptación clara refina la firma con la voz de hoy
+   (así se adapta a la distancia, el ambiente y el paso de los días, como Alexa). */
+let ultimaAdicion = 0;
+function aprenderPerfil(p, sim) {
+  if (!ultimo || !ultimo.embedding || sim < umbral() + 0.05) return;
+  const ahora = Date.now();
+  if (ahora - ultimaAdicion < 60000) return;
+  try {
+    p.muestras.push(Array.from(ultimo.embedding));
+    while (p.muestras.length > 8) p.muestras.shift();
+    guardarPerfil(p);
+    ultimaAdicion = ahora;
+  } catch (e) {}
 }
 async function decidir(p) {
   if (!stream) { const ok = await abrir(); if (!ok) { ultimo = { razon: "sin microfono" }; return true; } }
@@ -196,28 +226,36 @@ async function decidir(p) {
       new Promise((_, rej) => setTimeout(() => rej(new Error("modelo tardó")), 30000)),
     ]);
   } catch (e) { failSesion = true; ultimo = { razon: "motor caído" }; return true; }
-  const seg = segmentoVoz(SEG_VERIFICAR);
-  if (!seg) { ultimo = { razon: "sin voz clara" }; return true; }
-  try {
-    const blob = wav16k(seg, ctxAudio.sampleRate);
-    const r = await Promise.race([
-      verificador.getEmbedding(blob),
-      new Promise((_, rej) => setTimeout(() => rej(new Error("verificación tardó")), 4000)),
-    ]);
-    if (!r || !r.embedding) { ultimo = { razon: "sin embedding" }; return true; }
-    let mejor = -1;
-    for (const m of p.muestras) {
-      const s = verificador.compareEmbeddings(r.embedding, new Float32Array(m));
-      if (s > mejor) mejor = s;
-    }
-    const u = umbral();
-    ultimo = { sim: mejor, umbral: u };
-    return mejor >= u;
-  } catch (e) { ultimo = { razon: "error: " + e.message }; return true; }
+  // Dos ventanas: la larga (contexto) y la corta (lo más reciente). Vale la mejor.
+  let mejor = -1;
+  for (const segs of [SEG_VERIFICAR, 3.5]) {
+    const seg = segmentoVoz(segs);
+    if (!seg || seg.length < ctxAudio.sampleRate * 1.5) continue; // muy corto: no es fiable
+    try {
+      const r = await Promise.race([
+        verificador.getEmbedding(wav16k(seg, ctxAudio.sampleRate)),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("verificación tardó")), 4000)),
+      ]);
+      if (!r || !r.embedding) continue;
+      let mejorMuestra = -1;
+      for (const m of p.muestras) {
+        const s = verificador.compareEmbeddings(r.embedding, new Float32Array(m));
+        if (s > mejorMuestra) mejorMuestra = s;
+      }
+      if (mejorMuestra > mejor) {
+        mejor = mejorMuestra;
+        ultimo = { sim: mejorMuestra, umbral: umbral(), embedding: Array.from(r.embedding) };
+      }
+    } catch (e) { /* ventana fallida: probamos la otra */ }
+  }
+  if (mejor < 0) { ultimo = { razon: "sin voz clara" }; return true; }
+  ultimo.umbral = umbral();
+  return mejor >= umbral();
 }
 
 /* ── Inscripción: 3 muestras de ~5 s hablando normal ── */
 async function enseniar(aviso) {
+  rechazos = []; valvula = false;
   if (!stream) { const ok = await abrir(); if (!ok) return { ok: false, error: "no pude abrir el micrófono" }; }
   try { await preparar(); } catch (e) { return { ok: false, error: "no bajó el modelo de voz" }; }
   const muestras = [];
@@ -241,6 +279,7 @@ async function enseniar(aviso) {
     if (!hecha) return { ok: false, error: "no se escuchó su voz en la muestra " + i };
   }
   guardarPerfil({ t: Date.now(), muestras });
+  failSesion = false; // voz recién enseñada: sesión nueva y sana
   return { ok: true, n: muestras.length };
 }
 
@@ -287,12 +326,14 @@ const _internos = {
   fingirStream() { stream = { getTracks: () => [] }; }, // QA: omite getUserMedia
   encender(on) { try { localStorage.setItem(LS_ON, on ? "1" : "0"); } catch (e) {} },
   forzarFallo(on) { failSesion = !!on; },
+  quitarValvula() { valvula = false; rechazos = []; },
 };
 
 window.ViernesVozId = {
   activo, esElJefe, enseniar, iniciar, cerrar, estado,
   falloSesion,
   get abierto() { return !!stream; },
+  get valvula() { return valvula; },
   get ultimoResultado() { return ultimo; },
   borrar() { try { localStorage.removeItem(LS_PERFIL); } catch (e) {} },
   _internos,
