@@ -85,9 +85,13 @@ let modoMock = false;
 async function abrir() {
   if (stream) return true;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true }
-    });
+    // Techo de 8 s: un permiso sin responder NUNCA puede dejar a VIERNES colgado
+    stream = await Promise.race([
+      navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true }
+      }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("permiso tardó")), 8000)),
+    ]);
     ctxAudio = new (window.AudioContext || window.webkitAudioContext)();
     if (ctxAudio.state === "suspended") { try { await ctxAudio.resume(); } catch (e) {} }
     fuente = ctxAudio.createMediaStreamSource(stream);
@@ -175,9 +179,16 @@ function wav16k(pcm, rate) {
 }
 
 /* ── Verificación: ¿esta voz es la del jefe? ── */
+let verificando = false;
 async function esElJefe() {
   const p = perfil();
   if (!encendido() || !p || failSesion) { ultimo = { razon: "inactivo" }; return true; }
+  if (verificando) { ultimo = { razon: "verificando otra" }; return true; } // sin cola: la escucha no espera
+  verificando = true;
+  try { return await decidir(p); }
+  finally { verificando = false; }
+}
+async function decidir(p) {
   if (!stream) { const ok = await abrir(); if (!ok) { ultimo = { razon: "sin microfono" }; return true; } }
   try {
     await Promise.race([
@@ -246,11 +257,22 @@ function estado() {
     sana: !failSesion,
   };
 }
-async function iniciar() {
+async function iniciar(conMicro) {
   try { await preparar(); } catch (e) { failSesion = true; return false; }
-  const ok = await abrir();
-  if (!ok) failSesion = true;
-  return ok;
+  if (conMicro) {
+    const ok = await abrir();
+    if (!ok) failSesion = true;
+    return ok;
+  }
+  return true; // el micrófono se abre perezosamente en la primera verificación
+}
+
+/* Cierra la captura y queda desactivada el resto de la sesión.
+   Se usa cuando su segunda línea de micrófono entra en conflicto
+   con el reconocedor: la escucha vale más que el filtro de voz. */
+function falloSesion() {
+  cerrar();
+  failSesion = true;
 }
 
 /* Ganchos de prueba (QA sin micrófono) */
@@ -269,6 +291,8 @@ const _internos = {
 
 window.ViernesVozId = {
   activo, esElJefe, enseniar, iniciar, cerrar, estado,
+  falloSesion,
+  get abierto() { return !!stream; },
   get ultimoResultado() { return ultimo; },
   borrar() { try { localStorage.removeItem(LS_PERFIL); } catch (e) {} },
   _internos,

@@ -305,8 +305,10 @@ let oidoCaidoSesion = false, lastReconSenal = Date.now();
 function sanarEscucha(motivo) {
   log(motivo, "warn");
   oidoCaidoSesion = true;
-  try { localStorage.setItem("viernes_oido_bloqueado", String(Date.now() + 24 * 3600 * 1000)); } catch (e) {}
+  try { localStorage.setItem("viernes_oido_bloqueado", String(Date.now() + 2 * 3600 * 1000)); } catch (e) {}
   if (VE) VE.cerrar();
+  // El oído personal también suelta el micrófono: nada debe competir con la escucha
+  if (window.ViernesVozId) { try { ViernesVozId.falloSesion(); } catch (e) {} }
   if (recognition) { try { recognition.onend = null; recognition.abort(); } catch (e) {} recognition = null; }
   setTimeout(() => { if (listening) { iniciarReconocimiento(); try { recognition.start(); } catch (e) {} } }, 400);
 }
@@ -353,11 +355,14 @@ function iniciarReconocimiento() {
     if (e.error !== "no-speech" && e.error !== "aborted") log("Micrófono: error «" + e.error + "»", "warn");
     if (e.error === "network") toast("Sin conexión con el servicio de voz. Reintentando…");
     if (e.error === "not-allowed" || e.error === "service-not-allowed") { listening = false; setEstado("standby"); log("Micrófono denegado", "error"); }
-    else if (e.error === "audio-capture" && VE && VE.abierta) {
-      // CONFLICTO DE MICRÓFONO: la segunda línea del oído frontal puede robar
-      // la línea del reconocedor en algunos Android. Sanar: oír BIEN es más
-      // importante que el filtro.
-      sanarEscucha("Micrófono en conflicto con el oído frontal: lo cierro para que la escucha vuelva");
+    else if (e.error === "audio-capture" && ((VE && VE.abierta) || (window.ViernesVozId && ViernesVozId.abierto))) {
+      // CONFLICTO DE MICRÓFONO: la segunda línea del oído frontal o del oído
+      // personal puede robar la línea del reconocedor en algunos Android.
+      // Sanar: oír BIEN es más importante que cualquier filtro.
+      const eraVozId = window.ViernesVozId && ViernesVozId.abierto;
+      if (window.ViernesVozId) ViernesVozId.falloSesion();
+      if (eraVozId) toast("El oído personal se pausó para no dañar la escucha.");
+      sanarEscucha("Micrófono en conflicto con un oído auxiliar: lo cierro para que la escucha vuelva");
     }
   };
   // Vigilante de tormenta de reinicios: 6 arranques en 30 s SIN entregar NADA
@@ -415,12 +420,14 @@ async function volcarBuffer() {
      cuenta si es la voz del jefe. Fallo o duda → pasa (nunca queda sordo). */
   if (aprendiendoVoz) return; // mientras enseña su voz, no escucha comandos
   if (window.ViernesVozId && ViernesVozId.activo()) {
-    setEstado("thinking");
-    const jefe = await ViernesVozId.esElJefe();
-    const r = ViernesVozId.ultimoResultado || {};
-    if (typeof r.sim === "number") log("Oído personal: similitud " + r.sim.toFixed(2) + (jefe ? " — es su voz" : " — VOZ AJENA, ignorada"), jefe ? "ok" : "warn");
-    else log("Oído personal sin señal (" + (r.razon || "?") + "): deja pasar", "warn");
-    if (!jefe) { setEstado(listening ? "listening" : "standby"); return; }
+    try {
+      setEstado("thinking");
+      const jefe = await ViernesVozId.esElJefe();
+      const r = ViernesVozId.ultimoResultado || {};
+      if (typeof r.sim === "number") log("Oído personal: similitud " + r.sim.toFixed(2) + (jefe ? " — es su voz" : " — VOZ AJENA, ignorada"), jefe ? "ok" : "warn");
+      else log("Oído personal sin señal (" + (r.razon || "?") + "): deja pasar", "warn");
+      if (!jefe) { setEstado(listening ? "listening" : "standby"); return; }
+    } catch (e) { log("Oído personal falló (" + e.message + "): deja pasar", "warn"); }
   }
   procesarVoz(completo);
 }
@@ -2293,7 +2300,7 @@ function bindAjustes() {
     try { localStorage.setItem("viernes_vozid_on", vzOnW.checked ? "1" : "0"); } catch (e) {}
     if (vzOnW.checked && window.ViernesVozId) {
       toast("Preparando el oído personal…");
-      ViernesVozId.iniciar().then((ok) => { log(ok ? "Oído personal activado" : "Oído personal sin micrófono — queda inofensivo", ok ? "ok" : "warn"); refrescarVozIdEstado(); });
+      ViernesVozId.iniciar(false).then(() => { log("Oído personal activado — el micrófono auxiliar se abrirá al verificar", "ok"); refrescarVozIdEstado(); });
     } else if (window.ViernesVozId) { ViernesVozId.cerrar(); log("Oído personal desactivado", "warn"); }
     refrescarVozIdEstado();
   });
