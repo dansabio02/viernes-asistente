@@ -674,9 +674,11 @@ function extraerDespertar(texto, n, lista) {
     return [k];
   };
   const cortesias = "(?:\\s*(?:oye\\b|hey\\b|h[eé]y\\b|eh\\b|bien\\b|bueno\\b|buena\\b|buenas\\b|hola\\b|disculpa\\b|perd[oó]n\\w*\\b|jefe\\b|daniel\\b|se[nñ]or\\b|oks?\\b|mmm+\\b)\\s*)?";
+  // Signos de puntuación al inicio (¿ ¡ " «) que el micrófono puede anteponer
+  const inicio = "^[¿¡\"'««]*";
   for (const k of lista) {
     for (const v of variantesDe(k)) {
-      const m = new RegExp("^" + cortesias + v + "\\b", "i").exec(n);
+      const m = new RegExp(inicio + cortesias + v + "\\b", "i").exec(n);
       if (m) {
         const cort = m[0].length; // incluye la palabra de cortesía si la hubo
         let cmd;
@@ -2728,6 +2730,9 @@ function brainNetwork() {
 
 function init() {
   try { Object.assign(cfg, JSON.parse(localStorage.getItem("viernes_cfg") || "{}")); } catch (e) {}
+  // Migración: por defecto ahora es conversación continua (tipo Gemini).
+  // Si el cfg guardado trae el modo anterior "despertar", se actualiza.
+  if (cfg.escuchaModo === "despertar") cfg.escuchaModo = "conversacion";
   // Migración única: actualizar cerebro guardado por versiones anteriores
   // (20B/medio/4096 → 120B/alto/8192). Se respeta una clave personalizada.
   try {
