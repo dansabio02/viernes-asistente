@@ -23,6 +23,10 @@ window.ViernesSoniendo = () => speaking;
 let ultimoTranscript = "", ultimoTranscriptTime = 0, finHablaTime = 0, audioActual = null, pendientePeticion = 0;
 let hablarGen = 0, bufferFin = "", bufferTimer = null, textoEnCurso = "", bufferConf = 0, bufferConfN = 0;
 let confHist = []; // confianza de frases procesadas: si el motor es de por sí impreciso, la puerta se desactiva sola
+/* Ventana de conversación continua (tipo Gemini Live): tras responder, Viernes
+   se queda escuchando sin requerir «Viernes» durante este lapso. Fuera de ella,
+   vuelve a requerir la palabra de activación (modo «despertar»). */
+const VENTANA_CONVERSACION = 45000; // 45 segundos de conversación libre tras cada respuesta
 /* Oído frontal (escucha.js): replica en software la cadena del Echo
    (AEC + NS + AGC + piso adaptativo + espectro de voz + variabilidad
    silábica). Se usa para aceptar SOLO voz humana real frente al
@@ -288,7 +292,10 @@ function setEstado(e) {
   const body = document.body; body.setAttribute("data-state", e);
   const st = $("statusText"), sub = $("orbSub"), orb = $("orbStage");
   if (st) st.textContent = e === "listening" ? "ESCUCHANDO" : e === "speaking" ? "HABLANDO" : "EN ESPERA";
-  if (sub) sub.textContent = e === "listening" ? "MICRÓFONO ACTIVO" : e === "speaking" ? "RESPONDIENDO…" : "SISTEMA EN ESPERA";
+  if (sub) {
+    const enConversacion = cfg.escuchaModo === "conversacion" && Date.now() - ultimaRespuesta < VENTANA_CONVERSACION;
+    sub.textContent = e === "listening" ? (enConversacion ? "CONVERSACIÓN CONTINUA (no hace falta «Viernes»)" : "MICRÓFONO ACTIVO") : e === "speaking" ? "RESPONDIENDO…" : "SISTEMA EN ESPERA";
+  }
   if (orb) orb.classList.toggle("active", e !== "standby");
   const btn = $("btnStop"); if (btn) btn.disabled = e !== "speaking";
   // Eco propio: mientras VIERNES habla el oído no contará esos marcos como voz externa
@@ -603,32 +610,53 @@ function procesarVoz(texto) {
     }
     enviarTexto(cmd);
   } else if (cfg.handsFree) {
-    /* ESCUCHA CONTINUA a lo Echo: el filtro ESTRUCTURAL es la palabra de
-       activación. Por defecto («despertar»), sin «Viernes» no se atiende
-       nada fuera de la ventana de conversación: la TV, el celular y los
-       ruidos transcritos quedan fuera de raíz, no depende del micrófono.
-       «libre» = el comportamiento anterior (atiende todo). */
+    const ahora = Date.now();
+    const enVentanaSeguimiento = ahora - ultimaRespuesta < cfg.followUp * 1000;
+    const enVentanaConversacion = cfg.escuchaModo === "conversacion" && ahora - ultimaRespuesta < VENTANA_CONVERSACION;
     const modo = String(cfg.escuchaModo || "despertar");
-    if (modo !== "libre") {
-      // Ventana de conversación: dijo solo «Viernes» y se espera la petición
-      if (Date.now() - pendientePeticion < 12000) {
-        pendientePeticion = 0;
-        if (!verificarPassphrase(texto)) { setEstado("listening"); toast("🔒 Bloqueado. Diga la frase de acceso."); return; }
-        enviarTexto(texto);
+
+    // Siempre atender si está en ventana de seguimiento inmediato (tras responder Viernes)
+    if (enVentanaSeguimiento) {
+      if (!verificarPassphrase(texto)) { setEstado("listening"); toast("🔒 Bloqueado. Diga la frase de acceso."); return; }
+      enviarTexto(texto);
+      return;
+    }
+
+    if (modo === "libre") {
+      // MODO LIBRE: procesar todo lo que se diga, sin «Viernes» — pero NO los
+      // blips: una sola palabra corta suele ser un sonido mal transcrito
+      // (portazo, golpe, copa), no una petición.
+      if (palabras.length < 2 && n.replace(/\s/g, "").length < 8) {
+        log("Escucha: blip descartado («" + n + "»)", "warn");
         return;
       }
-      log("Escucha continua: ignorado «" + n.slice(0, 44) + "» — sin palabra de activación", "warn");
+      if (!verificarPassphrase(texto)) { setEstado("listening"); toast("🔒 Bloqueado. Diga la frase de acceso."); return; }
+      enviarTexto(texto);
       return;
     }
-    // MODO LIBRE: procesar todo lo que se diga, sin «Viernes» — pero NO los
-    // blips: una sola palabra corta suele ser un sonido mal transcrito
-    // (portazo, golpe, copa), no una petición.
-    if (palabras.length < 2 && n.replace(/\s/g, "").length < 8) {
-      log("Escucha: blip descartado («" + n + "»)", "warn");
+
+    if (modo === "conversacion" && enVentanaConversacion) {
+      // MODO CONVERSACIÓN (tipo Gemini Live): tras responder, Viernes se queda
+      // escuchando sin requerir «Viernes» durante la ventana extendida. Sigue
+      // filtrando blips y usa el oído de voz humana para que la TV no se cuele.
+      if (palabras.length < 2 && n.replace(/\s/g, "").length < 8) {
+        log("Conversación: blip descartado («" + n + "»)", "warn");
+        return;
+      }
+      if (!verificarPassphrase(texto)) { setEstado("listening"); toast("🔒 Bloqueado. Diga la frase de acceso."); return; }
+      enviarTexto(texto);
       return;
     }
-    if (!verificarPassphrase(texto)) { setEstado("listening"); toast("🔒 Bloqueado. Diga la frase de acceso."); return; }
-    enviarTexto(texto);
+
+    // MODO DESPERTAR (por defecto): sin «Viernes» no se atiende fuera de ventana
+    if (Date.now() - pendientePeticion < 12000) {
+      pendientePeticion = 0;
+      if (!verificarPassphrase(texto)) { setEstado("listening"); toast("🔒 Bloqueado. Diga la frase de acceso."); return; }
+      enviarTexto(texto);
+      return;
+    }
+    log("Escucha continua: ignorado «" + n.slice(0, 44) + "» — sin palabra de activación", "warn");
+    return;
   } else if (Date.now() - pendientePeticion < 12000) {
     // Continuación: la petición llegó en un trozo aparte (Chrome corta la frase en el teléfono)
     pendientePeticion = 0;
@@ -2396,7 +2424,13 @@ function bindAjustes() {
   }
   // Escucha continua: modo estructural (palabra de activación) o libre
   const sModoW = $("setEscuchaModo");
-  if (sModoW) sModoW.addEventListener("change", () => { cfg.escuchaModo = sModoW.value; save(); log("Escucha continua: " + (sModoW.value === "libre" ? "atiende todo lo que se hable" : "solo con «Viernes»"), "ok"); });
+  if (sModoW) sModoW.addEventListener("change", () => {
+    cfg.escuchaModo = sModoW.value; save();
+    const txt = sModoW.value === "libre" ? "atiende todo lo que se hable"
+      : sModoW.value === "conversacion" ? "conversación continua tras responder (45 s)"
+      : "solo con «Viernes»";
+    log("Escucha continua: " + txt, "ok");
+  });
   // Oído personal (Voice ID): interruptor, rigor, enseñar y borrar
   const vzOnW = $("setVozId");
   if (vzOnW) vzOnW.addEventListener("change", () => {
