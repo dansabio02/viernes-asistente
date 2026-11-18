@@ -9,7 +9,7 @@ const DEFAULTS = {
   voiceEngine: "browser", xaiVoice: "eve", xaiLang: "es-MX", browserVoice: "", ttsVoz: "es-MX-DaliaNeural",
   rate: 1.0, pitch: 1.0, autoSpeak: true, sounds: true,
   userName: "Señor Daniel", altName: "Jefe", wakeWords: "viernes",
-  escuchaModo: "despertar",
+  escuchaModo: "conversacion",
   language: "es-MX", followUp: 12, handsFree: true, autoStartMic: false,
   cameraDevice: "", imageDetail: "auto", maxImage: "1280", autoAttach: false, mirror: false, memory: true,
   passLock: false, passphrase: "papá llegó", passTimeout: 10, outlookPrimero: false
