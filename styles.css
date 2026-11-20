@@ -356,3 +356,96 @@ input[type="range"]{width:100%;height:34px;accent-color:var(--accent-2);backgrou
   .stage-btn{min-width:76px;padding:10px 10px}
   .mic-btn{width:66px;height:66px}
 }
+
+/* ============================================================
+   MEJORAS MÓVIL — Experiencia táctil y accesibilidad
+   ============================================================ */
+
+/* Barra de chat inferior fija (modo texto cuando no se puede usar voz) */
+.chat-bar{
+  position:fixed;
+  z-index:140;
+  left:0;right:0;
+  bottom:calc(10px + env(safe-area-inset-bottom));
+  display:flex;justify-content:center;
+  padding:0 14px;
+  pointer-events:none;
+}
+.chat-inner{
+  display:flex;align-items:center;gap:8px;
+  width:100%;max-width:520px;
+  pointer-events:auto;
+}
+.chat-toggle{
+  flex:none;width:48px;height:48px;border:none;border-radius:50%;
+  background:rgba(72,233,255,.12);border:1.5px solid var(--border-strong);
+  color:var(--accent-2);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;
+  box-shadow:0 0 18px rgba(72,233,255,.15);transition:all .2s;
+}
+.chat-toggle svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.chat-toggle:active{transform:scale(.92);background:rgba(72,233,255,.22)}
+.chat-input-wrap{
+  display:flex;align-items:center;gap:8px;flex:1;
+  border:none;border-radius:50px;background:rgba(2,8,16,.88);
+  border:1.5px solid var(--border-strong);box-shadow:0 0 24px rgba(72,233,255,.15),inset 0 0 12px rgba(0,0,0,.4);
+  overflow:hidden;
+}
+.chat-input-wrap input{
+  flex:1;min-width:0;border:none;background:transparent;color:var(--text);
+  font-family:'Rajdhani',sans-serif;font-size:1rem;padding:12px 14px;outline:none;
+  font-size:16px; /* evita zoom en iOS al enfocar */
+}
+.chat-input-wrap input::placeholder{color:var(--muted);opacity:.7}
+.chat-send{
+  flex:none;width:44px;height:44px;border:none;border-radius:50%;
+  background:linear-gradient(145deg,var(--accent),#0090c0);color:#02121c;
+  cursor:pointer;display:inline-flex;align-items:center;justify-content:center;
+  box-shadow:0 0 20px rgba(72,233,255,.35);transition:all .2s;
+}
+.chat-send svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.chat-send:active{transform:scale(.94);filter:brightness(1.2)}
+
+/* Objetivos táctiles mínimos 44px (recomendación WCAG/Apple) */
+button,.stage-btn,.mic-btn,.tab,.icon-btn,.mini-btn,.btn,.check-row,.switch{
+  min-height:44px;min-width:44px;
+}
+.icon-btn.tiny,.switch,.check-row.compact{min-height:40px;min-width:40px}
+
+/* Botón de micrófono más claro y con mejor feedback táctil */
+.mic-btn{width:80px;height:80px;min-width:80px;min-height:80px}
+.mic-btn svg{width:30px;height:30px}
+.mic-btn:active{transform:scale(.94)}
+.mic-btn.active{box-shadow:0 0 34px rgba(0,255,159,.35),inset 0 0 18px rgba(0,255,159,.14)}
+
+/* Estado de escucha más legible en móvil */
+.status-pill{font-size:.7rem;padding:5px 14px;min-height:36px}
+.status-dot{width:8px;height:8px}
+body[data-state="listening"] .status-dot{animation:blink 1s infinite}
+
+/* Evitar que el teclado virtual cubra el input de chat en móvil */
+@media (max-width:899px){
+  .chat-bar{bottom:calc(12px + env(safe-area-inset-bottom))}
+  .layout{padding-bottom:70px} /* espacio para la barra de chat cuando esté visible */
+}
+
+/* Mejor legibilidad de labels y ayudas en pantallas pequeñas */
+.field-group label,.panel-desc,.field-help,.pass-estado,.test-result{
+  font-size:.7rem;line-height:1.45
+}
+.field-group input,.field-group select{font-size:16px} /* sin zoom en iOS */
+.check-row{font-size:.86rem;padding:10px 12px}
+
+/* Tabs de ajustes más fáciles de tocar en móvil */
+.tab{padding:10px 16px;font-size:.9rem;min-height:46px}
+.tab svg{width:16px;height:16px}
+
+/* Cerrar modales con deslizamiento hacia abajo (gesto táctil) */
+.settings-card,.help-card,.mail-card{touch-action:pan-y}
+
+/* Botones de acción rápida más grandes en móvil */
+.btn{padding:13px 20px;font-size:.95rem;min-height:48px}
+.btn.small{padding:10px 14px;min-height:40px}
+
+/* Importante (alertas) más visible en móvil */
+.importante{top:auto;bottom:calc(90px + env(safe-area-inset-bottom));transform:none;width:min(94vw,500px);left:50%}
+.importante.open{transform:translate(-50%,0)}

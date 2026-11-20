@@ -431,5 +431,17 @@
   <script src="vozid.js"></script>
   <script src="app.js"></script>
   <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});</script>
+
+  <!-- Barra de chat de texto para móvil (cuando no se puede usar la voz) -->
+  <div class="chat-bar" id="chatBar" aria-label="Escribir a Viernes">
+    <div class="chat-inner">
+      <button class="chat-toggle" id="chatToggle" title="Escribir mensaje" aria-label="Escribir mensaje"><svg><use href="#i-mail"/></svg></button>
+      <div class="chat-input-wrap" id="chatInputWrap" hidden>
+        <input type="text" id="chatInput" placeholder="Escribe a Viernes…" autocomplete="off" spellcheck="false" autocapitalize="sentences" />
+        <button class="chat-send" id="chatSend" title="Enviar" aria-label="Enviar"><svg><use href="#i-send"/></svg></button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

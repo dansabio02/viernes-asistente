@@ -2764,6 +2764,46 @@ function init() {
   } catch (e) {}
   try { historial = JSON.parse(localStorage.getItem("viernes_hist") || "[]"); } catch (e) {}
   starfield(); brainNetwork(); actualizarReloj(); setInterval(actualizarReloj, 1000);
+  /* ── Chat de texto inferior (móvil: modo texto cuando no se puede usar voz) ── */
+  (function(){
+    const wrap = $("chatInputWrap");
+    const inp  = $("chatInput");
+    const btn  = $("chatSend");
+    const tog  = $("chatToggle");
+    if(!wrap || !inp || !btn || !tog) return;
+
+    let abierto = false;
+    tog.addEventListener("click", (e) => {
+      e.stopPropagation();
+      abierto = !abierto;
+      wrap.hidden = !abierto;
+      tog.setAttribute("aria-expanded", String(abierto));
+      if (abierto) {
+        try { inp.focus(); } catch (e) {}
+      }
+    });
+    // Enviar con Enter
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); enviarChat(); }
+    });
+    btn.addEventListener("click", enviarChat);
+    function enviarChat() {
+      const t = (inp.value || "").trim();
+      if (!t) return;
+      wrap.hidden = true; abierto = false;
+      tog.setAttribute("aria-expanded", "false");
+      inp.value = "";
+      enviarTexto(t);
+    }
+    // Cerrar al tocar fuera
+    document.addEventListener("click", (e) => {
+      if (abierto && !wrap.contains(e.target) && !tog.contains(e.target)) {
+        wrap.hidden = true; abierto = false;
+        tog.setAttribute("aria-expanded", "false");
+      }
+    });
+  })();
+
   aplicarUI(); bindAjustes(); initEagleUI(); initMailUI(); initOutlookUI();
   // Base de memoria: local + espejo en la nube (sin pedir PIN aquí; el canal solo se usa si ya existe)
   if (Mi) { Mi.inicializar(); Mi.configurar((ruta) => { if (!pinNotas) throw new Error("sin pin"); return apiMemoria(ruta); }); }
