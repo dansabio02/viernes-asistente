@@ -1435,23 +1435,84 @@ async function comandoMemoria(texto) {
 let aprendizajes = [];
 try { aprendizajes = JSON.parse(localStorage.getItem("viernes_aprend") || "[]"); } catch (e) { aprendizajes = []; }
 function guardarAprendizajes() { try { localStorage.setItem("viernes_aprend", JSON.stringify(aprendizajes.slice(-80))); } catch (e) {} }
-function aprendizAlBloque(consulta, limite = 14) {
-  if (!aprendizajes.length) return "";
-  let sel = aprendizajes.slice(-limite); // sin consulta: los más recientes
-  if (consulta) {
-    // RANKEO por relevancia: los que comparten palabras con lo que pregunta
-    // van primero; los 14 más recientes tienen ventaja para no perderse.
-    const claves = normalizar(consulta).split(/\s+/).filter((w) => w.length > 3);
-    const recientes = new Set(aprendizajes.slice(-limite));
-    const puntuar = (a) => {
-      const bajo = normalizar(a.txt).split(/\s+/);
-      return claves.reduce((n, w) => n + (bajo.includes(w) ? 1 : 0), 0) + (recientes.has(a) ? 0.5 : 0);
-    };
-    sel = aprendizajes.slice().sort((x, y) => puntuar(y) - puntuar(x)).slice(0, limite);
-    sel.sort((x, y) => x.t - y.t);
+
+/* ==== APRENDIZAJE CONTINUO — FEEDBACK IMPLÍCITO BINARIO ====
+   Detecta si el jefe está satisfecho o no con la última respuesta
+   sin que tenga que calificar nada: agradecimientos, correcciones,
+   «eso no», «mejor dicho», repetición, etc. Cada señal sube o baja
+   la confianza de la lección más reciente y su contador de uso. */
+const FEEDBACK_POS = /^(gracias|gracias viernes|perfecto|excelente|bien|correcto|así me gusta|me ayudó|solucionado|ok|vale|está bien|me sirve|me ayuda|está correcto|exactamente|así es|sí eso|eso es)/;
+const FEEDBACK_NEG = /^(no|eso no|no me gusta|no está bien|está mal|incorrecto|olvida eso|mejor dicho|de hecho|quiero decir|repito|no es eso|no era eso|estás equivocado|te equivocaste|no sirve|no funciona|está equivocado)/;
+function detectarFeedbackImplicito(texto) {
+  const n = normalizar(texto || "");
+  const pos = FEEDBACK_POS.test(n) || /(me ayudó|me sirve|está correcto|exactamente|así es|eso es|me gusta)/.test(n);
+  const neg = FEEDBACK_NEG.test(n) || /(no es eso|no era eso|no sirve|no funciona|está equivocado)/.test(n);
+  if (pos && !neg) return 1;
+  if (neg && !pos) return -1;
+  return 0;
+}
+/* Aplica una señal de feedback (+1 satisfecho / -1 insatisfecho) a la
+   última lección aprendida, reforzando o debilitando su confianza. */
+function aplicarFeedbackImplicito(senal) {
+  if (!aprendizajes.length) return;
+  const ult = aprendizajes[aprendizajes.length - 1];
+  if (!ult) return;
+  const antes = (ult.confianza || 0.5);
+  if (senal > 0) {
+    ult.feedback = Number(ult.feedback || 0) + 1;
+    ult.confianza = Math.min(1, antes + 0.1);
+    log("Feedback implícito POSITIVO sobre lección: " + String(ult.txt).slice(0, 40), "ok");
+  } else {
+    ult.feedback = Number(ult.feedback || 0) - 1;
+    ult.confianza = Math.max(0, antes - 0.15);
+    log("Feedback implícito NEGATIVO sobre lección: " + String(ult.txt).slice(0, 40), "warn");
   }
-  return "\nLO QUE HA APRENDIDO DE SU JEFE EN CONVERSACIONES ANTERIORES (úsese con naturalidad, sin preguntarle de nuevo; prevalece sobre su memoria de entrenamiento):\n" +
-    sel.map((a) => "- " + a.txt).join("\n") + "\n";
+  ult.uso = Number(ult.uso || 0) + 1;
+  ult.ultimaRetroalimentacion = Date.now();
+  guardarAprendizajes();
+}
+
+/* ==== LECCIONES ESTRUCTURADAS (tipo ReasoningBank) ====
+   Cada lección: {id, t, txt, tipo, titulo, insight, tags[], confianza, uso, feedback}
+   Se inyectan en el system prompt para que Viernes las aplique automáticamente. */
+function normalizarLeccion(txt) {
+  const t = String(txt || "").trim();
+  const tags = [];
+  const tagKeys = ["trabajo","casa","clima","correo","cliente","presupuesto","coche","salud","familia","rutina","finanzas","compras","viaje","tecnologia"];
+  const nt = normalizar(t);
+  for (const k of tagKeys) if (nt.includes(k) && !tags.includes(k)) tags.push(k);
+  return { tags, texto: t };
+}
+/* Obtiene las lecciones más relevantes para una consulta, ranqueadas por
+   relevancia de texto, confianza, uso y feedback positivo. */
+function obtenerLeccionesRelevantes(consulta, limite = 5) {
+  if (!aprendizajes.length) return [];
+  const claves = normalizar(consulta || "").split(/\s+/).filter((w) => w.length > 3);
+  const scored = aprendizajes.map((l) => {
+    let rel = 0;
+    const lt = normalizar(l.txt || "");
+    for (const c of claves) if (lt.includes(c)) rel++;
+    const score = rel * 2 + Number(l.confianza || 0.5) + Number(l.uso || 0) * 0.3 + Number(l.feedback || 0) * 0.5;
+    return { leccion: l, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, limite).map((s) => s.leccion);
+}
+function formatoLeccion(l) {
+  const conf = Math.round((Number(l.confianza || 0.5) * 100));
+  const uso = Number(l.uso || 0);
+  const fb = Number(l.feedback || 0);
+  const tagStr = l.tags && l.tags.length ? " [" + l.tags.join(", ") + "]" : "";
+  return "- " + String(l.txt).slice(0, 140) + tagStr + " (confianza " + conf + "%" + (uso ? ", usada " + uso + " vez" + (uso > 1 ? "s" : "") : "") + (fb ? ", feedback " + (fb > 0 ? "+" : "") + fb : "") + ")";
+}
+function aprendizAlBloque(consulta, limite = 8) {
+  if (!aprendizajes.length) return "";
+  // Solo mostrar lecciones con confianza mínima para no ruidos
+  const umbralConf = 0.4;
+  const sel = obtenerLeccionesRelevantes(consulta || "", limite).filter((l) => Number(l.confianza || 0) >= umbralConf);
+  if (!sel.length) return "";
+  return "\nREGLAS APRENDIDAS DEL JEFE (aplicarlas con naturalidad; son preferencias suyas descubiertas en conversaciones pasadas):\n" +
+    sel.map((a) => formatoLeccion(a)).join("\n") + "\n";
 }
 async function comandoAprender(texto) {
   const n = normalizar(texto);
@@ -1586,7 +1647,7 @@ function destilarAprendizajes() {
   if (!pares) return;
   destilando = true;
   groqChat([
-    { role: "system", content: "Eres un extractor de memoria de un asistente. Del extracto de conversación, saca SOLO hechos DURADEROS sobre el jefe y sus preferencias estables (trabajo, rutinas, familia, gustos, decisiones que se repiten, cómo quiere ser tratado). Nada efímero: ni clima ni preguntas de un solo uso ni tareas ya resueltas. Responde SOLO JSON: array de frases cortas (máximo 3) o [] si no hay nada nuevo." },
+    { role: "system", content: "Eres un extractor de lecciones duraderas para un asistente personal. Del extracto de conversación, saca SOLO lecciones generales y reutilizables sobre el jefe: preferencias, rutinas, cómo quiere ser tratado, decisiones que se repiten, contexto de su trabajo o casa. Nada efímero (clima, preguntas de un solo uso). Responde SOLO JSON array (máximo 3) de objetos: {titulo: string corto, insight: string, tags: array de strings entre [trabajo,casa,clima,correo,cliente,presupuesto,coche,salud,familia,rutina,finanzas,compras,viaje,tecnologia], confianza: 0 a 1}. Si no hay nada nuevo, devuelve []." },
     { role: "user", content: pares },
   ], { effort: "low", temperature: 0.3 }).then((raw) => {
     let arr = null;
@@ -1594,28 +1655,29 @@ function destilarAprendizajes() {
     if (!Array.isArray(arr)) return;
     let added = 0;
     for (const f of arr.slice(0, 3)) {
-      const t = String(f).trim();
-      if (t.length < 10 || t.length > 240) continue;
-      if (aprendizajes.some((a) => textoSimilar(a.txt, t))) continue;
-      aprendizajes.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), t: Date.now(), txt: t });
-      if (Mi) Mi.almacenar("aprendido", t, { origen: "destilacion" });
+      const tit = String(f.titulo || f.titulo || "").trim();
+      const ins = String(f.insight || f.txt || "").trim();
+      const txt = (tit ? tit + ": " : "") + ins;
+      if (!ins || txt.length < 10 || txt.length > 260) continue;
+      if (aprendizajes.some((a) => textoSimilar(a.txt, txt))) continue;
+      const tagInfo = normalizarLeccion(txt);
+      const leccion = {
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+        t: Date.now(),
+        txt: txt,
+        tipo: "leccion",
+        titulo: tit || "",
+        insight: ins,
+        tags: tagInfo.tags,
+        confianza: Number(f.confianza) || 0.5,
+        uso: 0,
+        feedback: 0
+      };
+      aprendizajes.push(leccion);
+      if (Mi) Mi.almacenar("aprendido", txt, { origen: "destilacion", tags: tagInfo.tags });
       added++;
-      // Trato que aprende solo: si el hecho destila preferencia de cómo hablarle, se aplica al momento
-      const mx = t.match(/(.{0,45}?)\b(?:digas?|digamos|digan|ll[aá]mame)\b[^.]{0,40}?\b(señor daniel|señor|jefe|don daniel|patrón|patron)\b/i);
-      if (mx) {
-        const negado = /\b(?:no|nunca|jam[aá]s)\b/.test(mx[1]);
-        const primer = mx[2].toLowerCase().split(" ")[0];
-        const enLista = listaTratos().find((x) => x.toLowerCase().startsWith(primer));
-        if (enLista) {
-          if (negado) { ajustarPeso(enLista, 0.35); for (const x of listaTratos()) if (x !== enLista) ajustarPeso(x, 1.2); }
-          else { ajustarPeso(enLista, 1.9); for (const x of listaTratos()) if (x !== enLista) ajustarPeso(x, 0.9); }
-          tratoEstado.aprendido = true;
-          guardarTratoEstado();
-          log("Trato ajustado solo, por lo aprendido: " + enLista + (negado ? " menos" : " más"), "ok");
-        }
-      }
     }
-    if (added) { guardarAprendizajes(); log("Aprendizaje nuevo de la conversación: " + added + (added === 1 ? " lección" : " lecciones"), "ok"); }
+    if (added) { guardarAprendizajes(); log("Lección nueva de la conversación: " + added + (added === 1 ? "" : "es"), "ok"); }
   }).catch(() => {}).finally(() => { destilando = false; });
 }
 
@@ -2235,6 +2297,9 @@ async function enviarTexto(texto) {
   if (!texto && !contextoImagen) return;
   busy = true; textoEnCurso = texto; $("btnStop").disabled = false; setEstado("speaking");
   log("Usuario: " + (texto || "[imagen]"), "ok");
+  // Feedback implícito del jefe sobre la respuesta anterior (satisfacción/insatisfacción)
+  // Se aplica a la última lección aprendida para reforzarla o debilitarla.
+  try { const senal = detectarFeedbackImplicito(texto); if (senal !== 0) aplicarFeedbackImplicito(senal); } catch (e) {}
   const t0 = Date.now();
   try {
     // Comando local instantáneo (hora, fecha, saludo, estado) — sin IA
