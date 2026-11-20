@@ -609,6 +609,7 @@ function procesarVoz(texto) {
       return;
     }
     enviarTexto(cmd);
+    ultimaRespuesta = Date.now(); // reinicia ventana de conversación
   } else if (cfg.handsFree) {
     const ahora = Date.now();
     const enVentanaSeguimiento = ahora - ultimaRespuesta < cfg.followUp * 1000;
@@ -619,6 +620,7 @@ function procesarVoz(texto) {
     if (enVentanaSeguimiento) {
       if (!verificarPassphrase(texto)) { setEstado("listening"); toast("🔒 Bloqueado. Diga la frase de acceso."); return; }
       enviarTexto(texto);
+      ultimaRespuesta = Date.now(); // reinicia ventana de conversación
       return;
     }
 
@@ -632,6 +634,7 @@ function procesarVoz(texto) {
       }
       if (!verificarPassphrase(texto)) { setEstado("listening"); toast("🔒 Bloqueado. Diga la frase de acceso."); return; }
       enviarTexto(texto);
+      ultimaRespuesta = Date.now(); // reinicia ventana de conversación
       return;
     }
 
@@ -645,6 +648,7 @@ function procesarVoz(texto) {
       }
       if (!verificarPassphrase(texto)) { setEstado("listening"); toast("🔒 Bloqueado. Diga la frase de acceso."); return; }
       enviarTexto(texto);
+      ultimaRespuesta = Date.now(); // reinicia ventana de conversación
       return;
     }
 
@@ -653,6 +657,7 @@ function procesarVoz(texto) {
       pendientePeticion = 0;
       if (!verificarPassphrase(texto)) { setEstado("listening"); toast("🔒 Bloqueado. Diga la frase de acceso."); return; }
       enviarTexto(texto);
+      ultimaRespuesta = Date.now(); // reinicia ventana de conversación
       return;
     }
     log("Escucha continua: ignorado «" + n.slice(0, 44) + "» — sin palabra de activación", "warn");
@@ -687,6 +692,22 @@ function extraerDespertar(texto, n, lista) {
         // Devuelve el comando después del despertar; "" = dijo solo la palabra
         cmd = cmd.replace(/^(?:,\s*|,\s*)/, "");
         return { cmd };
+      }
+    }
+  }
+  /* DESPERTAR AL FINAL: «…me escuchas viernes», «…qué hora es viernes» —
+     la palabra de activación va al cierre. El comando es lo que se dijo
+     ANTES de «viernes». Esto cubre frases donde el jefe la pone al final. */
+  for (const k of lista) {
+    for (const v of variantesDe(k)) {
+      const fin = v + "\\b[¿¡\"'««.,;!?]*$";
+      const m = new RegExp(fin, "i").exec(n);
+      if (m) {
+        const idx = m.index;
+        let cmd = texto.slice(0, idx).trim();
+        // Quita signos de puntuación sobrantes al inicio y al final
+        cmd = cmd.replace(/^[¿¡\"'««\s]+/, "").replace(/[,\s.!?;:]+$/, "");
+        if (cmd) return { cmd };
       }
     }
   }
@@ -2493,6 +2514,7 @@ function bindAjustes() {
   const sModoW = $("setEscuchaModo");
   if (sModoW) sModoW.addEventListener("change", () => {
     cfg.escuchaModo = sModoW.value; save();
+    try { localStorage.setItem("viernes_escucha_modo_set", "1"); } catch (e) {}
     const txt = sModoW.value === "libre" ? "atiende todo lo que se hable"
       : sModoW.value === "conversacion" ? "conversación continua tras responder (45 s)"
       : "solo con «Viernes»";
@@ -2810,7 +2832,12 @@ function init() {
   try { Object.assign(cfg, JSON.parse(localStorage.getItem("viernes_cfg") || "{}")); } catch (e) {}
   // Migración: por defecto ahora es conversación continua (tipo Gemini).
   // Si el cfg guardado trae el modo anterior "despertar", se actualiza.
+  // Si el usuario nunca eligió el modo (sin flag de configuración), se fuerza
+  // "conversacion" para que no tenga que decir «Viernes» cada vez.
   if (cfg.escuchaModo === "despertar") cfg.escuchaModo = "conversacion";
+  if (!localStorage.getItem("viernes_escucha_modo_set")) {
+    cfg.escuchaModo = "conversacion";
+  }
   // Migración única: actualizar cerebro guardado por versiones anteriores
   // (20B/medio/4096 → 120B/alto/8192). Se respeta una clave personalizada.
   try {
