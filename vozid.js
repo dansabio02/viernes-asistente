@@ -55,6 +55,12 @@ function perfil() {
 function guardarPerfil(p) { try { localStorage.setItem(LS_PERFIL, JSON.stringify(p)); } catch (e) {} }
 function encendido() { try { return localStorage.getItem(LS_ON) === "1"; } catch (e) { return false; } }
 function umbral() {
+  // Si la válvula de seguridad está activa (rigor bajado a Laxo por 30 min),
+  // respetamos ese umbral temporal aunque el usuario tenga otro guardado.
+  try {
+    const hasta = parseInt(localStorage.getItem("viernes_vozid_valvula_hasta") || "0", 10);
+    if (hasta && Date.now() < hasta) return UMBRALES.laxo;
+  } catch (e) {}
   const u = UMBRALES[String(localStorage.getItem(LS_UMBRAL) || "normal")];
   return typeof u === "number" ? u : UMBRALES.normal;
 }
@@ -201,8 +207,15 @@ async function esElJefe() {
       rechazos.push(Date.now());
       rechazos = rechazos.filter((t) => Date.now() - t < VALVULA_MS);
       if (rechazos.length >= VALVULA_N) {
-        // VÁLVULA: si el filtro rechaza todo, se apaga él mismo y VIERNES vuelve a oírlo a TODO
-        failSesion = true; valvula = true; rechazos = [];
+        // VÁLVULA DE SEGURIDAD: no apagamos el filtro (eso dejaría el mic
+        // auxiliar cerrado y podría hacer que Viernes se quede sordo).
+        // En su lugar, bajamos el rigor a "laxo" durante 30 minutos y
+        // mostramos un aviso con botón para re-enseñar la voz.
+        const umbralGuardado = localStorage.getItem(LS_UMBRAL) || "normal";
+        try { localStorage.setItem(LS_UMBRAL, "laxo"); } catch (e) {}
+        try { localStorage.setItem("viernes_vozid_valvula_hasta", String(Date.now() + 30 * 60000)); } catch (e) {}
+        valvula = true; rechazos = [];
+        ultimo = { razon: "valvula: rigor bajado a Laxo por 30 min", umbral: UMBRALES.laxo };
       }
     }
     return jefe;
@@ -293,6 +306,11 @@ async function enseniar(aviso) {
 /* ── Estado para la interfaz ── */
 function estado() {
   const p = perfil();
+  let valvulaHasta = 0;
+  try {
+    valvulaHasta = parseInt(localStorage.getItem("viernes_vozid_valvula_hasta") || "0", 10);
+  } catch (e) {}
+  const enValvula = valvula && valvulaHasta && Date.now() < valvulaHasta;
   return {
     encendido: encendido(),
     tienePerfil: !!p,
@@ -301,6 +319,8 @@ function estado() {
     motorCargado: !!verificador,
     umbral: umbral(),
     sana: !failSesion,
+    valvulaActiva: enValvula,
+    valvulaHasta: enValvula ? valvulaHasta : 0,
   };
 }
 async function iniciar(conMicro) {
@@ -339,6 +359,7 @@ const _internos = {
 window.ViernesVozId = {
   activo, esElJefe, enseniar, iniciar, cerrar, estado,
   falloSesion,
+  quitarValvula,
   get abierto() { return !!stream; },
   get valvula() { return valvula; },
   get ultimoResultado() { return ultimo; },

@@ -2437,6 +2437,11 @@ function bindAjustes() {
   const vzOnW = $("setVozId");
   if (vzOnW) vzOnW.addEventListener("change", () => {
     try { localStorage.setItem("viernes_vozid_on", vzOnW.checked ? "1" : "0"); } catch (e) {}
+    // Al activar, limpiar cualquier válvula colgada para empezar con el rigor del usuario
+    if (vzOnW.checked) {
+      try { localStorage.removeItem("viernes_vozid_valvula_hasta"); } catch (e) {}
+      if (window.ViernesVozId) { ViernesVozId.quitarValvula(); }
+    }
     if (vzOnW.checked && window.ViernesVozId) {
       toast("Preparando el oído personal…");
       ViernesVozId.iniciar(false).then(() => { log("Oído personal activado — el micrófono auxiliar se abrirá al verificar", "ok"); refrescarVozIdEstado(); });
@@ -2512,6 +2517,14 @@ function refrescarVozIdEstado() {
   const e = ViernesVozId.estado();
   if (!e.encendido) { el.textContent = "Estado: desactivado"; el.style.color = "var(--muted)"; return; }
   if (!e.tienePerfil) { el.textContent = "Estado: active y enseñe su voz (3 muestras)"; el.style.color = "var(--amber, orange)"; return; }
+  if (e.valvulaActiva) {
+    const restante = Math.ceil((e.valvulaHasta - Date.now()) / 60000);
+    el.innerHTML = "Estado: <b>VÁLVULA ACTIVA</b> — rigor bajado a Laxo (" + restante + " min restantes). <button id=\"btnVozIdReensenar\" style=\"background:none;border:none;color:var(--green);cursor:pointer;margin-left:8px\">Re-enseñar mi voz</button>";
+    const btn = $("btnVozIdReensenar");
+    if (btn && !btn._vzid_wired) { btn._vzid_wired = true; btn.addEventListener("click", ensenarVozUI); }
+    el.style.color = "var(--amber, orange)";
+    return;
+  }
   el.textContent = "Estado: activo — su voz inscrita (" + e.nMuestras + " muestras, " + new Date(e.fecha).toLocaleDateString("es-MX") + ")";
   el.style.color = "var(--green)";
 }
