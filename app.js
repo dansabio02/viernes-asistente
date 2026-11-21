@@ -348,10 +348,15 @@ function iniciarReconocimiento() {
   // Reinicio con retardo: en móviles Chrome corta la sesión a cada resultado y hay que relanzarla.
   // El micrófono NO debe morir aunque Viernes esté pensando (busy): usted sigue hablando.
   recognition.onend = () => {
+    // Si hubo resultados del reconocedor muy recientemente, el usuario
+    // probablemente seguía hablando: esperamos un poco más antes de
+    // reiniciar para no cortar la frase a medio decir.
+    const haceResultado = Date.now() - lastReconSenal;
+    const reinicioMs = haceResultado < 800 ? 900 : 200;
     if (listening && !speaking && !document.hidden) {
       setTimeout(() => {
         if (listening && !speaking && !document.hidden) { try { recognition.start(); } catch (e) {} }
-      }, 200);
+      }, reinicioMs);
     }
   };
   recognition.onresult = (e) => {
@@ -402,10 +407,15 @@ function acumularFinal(texto, conf) {
   } else bufferConf = 0, bufferConfN = 0;
   programarVuelco();
 }
+/* Umbral de silencio antes de procesar una frase. 350 ms era demasiado corto:
+   una pausa natural dentro de una frase hacía que Chrome enviara isFinal y
+   Viernes respondiera a medias. Ahora espera ~1 s sin ningún resultado del
+   reconocedor antes de volcar el buffer. */
+const SILENCIO_FRASE_MS = busy ? 1500 : 1000;
 function programarVuelco() {
   clearTimeout(bufferTimer);
   // Fusión adaptativa: mientras Viernes piensa, Chrome suele partir más la frase — ventana más larga
-  bufferTimer = setTimeout(volcarBuffer, busy ? 600 : 350);
+  bufferTimer = setTimeout(volcarBuffer, busy ? 1500 : 1000);
 }
 async function volcarBuffer() {
   const completo = (bufferFin || "").trim();
@@ -574,7 +584,9 @@ function procesarVoz(texto) {
   // Guardas: Viernes está hablando o acaba de hablar (eco del altavoz del teléfono).
   // busy (pensando) NO bloquea: si Chrome parte la frase, el resto llega mientras piensa.
   if (speaking) return;
-  if (Date.now() - finHablaTime < 700) return;
+  // 400 ms de anti-eco del altavoz del teléfono: suficiente para no tragarse
+  // su propia voz, pero no tanto que corte una respuesta rápida del jefe.
+  if (Date.now() - finHablaTime < 400) return;
   const n = texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
 
   // ── COMPUERTA ACÚSTICA (oído frontal) ──
