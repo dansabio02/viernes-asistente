@@ -192,8 +192,7 @@ async function iniciar(callback) {
 
     processor.onaudioprocess = (ev) => {
       if (!activo) return;
-      const input = ev.inputBuffer.getChannelData(0);
-      recognizer.acceptWaveform(input);
+      recognizer.acceptWaveform(ev.inputBuffer);
     };
 
     fuente.connect(processor);
