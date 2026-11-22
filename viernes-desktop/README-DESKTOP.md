@@ -88,6 +88,34 @@ Escribir en el archivo: C:\Users\Daniel\notas.txt
 
 ---
 
+## 🎤 Motor de reconocimiento de voz
+
+Viernes ofrece dos motores de reconocimiento de voz. Selecciona uno en **Ajustes → Motor de reconocimiento de voz**:
+
+| Motor | ¿Necesita internet? | Modelo | Precisión | Ideal para |
+|-------|---------------------|--------|-----------|------------|
+| **Google Web Speech** | ✅ Sí | Servidor de Google | Alta | Cuando tienes internet estable |
+| **Vosk (offline)** | ❌ No | español small (~39 MB) | Media | Cuando no hay internet o el servidor de Google falla |
+
+### Vosk (reconocimiento offline)
+
+Vosk descarga un modelo de español (~39 MB) la primera vez que lo activas. El modelo queda en caché del navegador y todo el procesamiento se hace **localmente en tu dispositivo** — tu audio nunca sale de tu PC/celular.
+
+**Limitaciones de Vosk:**
+- Primera descarga: ~39 MB (una sola vez)
+- Usa ~300 MB de RAM durante el reconocimiento
+- Precisión menor que Google para frases largas y complejas
+- Requiere WebAssembly (Chrome/Edge modernos)
+- Funciona mejor con comandos cortos y claros
+
+**Si el micrófono no funciona con Google Web Speech:**
+1. Ve a **Ajustes → Motor de reconocimiento de voz**
+2. Selecciona **"Vosk (offline, sin internet)"**
+3. Espera a que descargue el modelo (puede tardar según tu conexión)
+4. Vuelve a activar el micrófono
+
+---
+
 ## 🛠️ Arquitectura técnica
 
 ```
