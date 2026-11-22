@@ -13,7 +13,7 @@ const DEFAULTS = {
   language: "es-MX", followUp: 12, handsFree: true, autoStartMic: false,
   cameraDevice: "", imageDetail: "auto", maxImage: "1280", autoAttach: false, mirror: false, memory: true,
   passLock: false, passphrase: "papá llegó", passTimeout: 10, outlookPrimero: false,
-  motorVoz: "webspeech"
+  motorVoz: "vosk"
 };
 let passUnlocked = false;
 let passUnlockTime = 0;
@@ -44,7 +44,7 @@ let historial = [], contextoImagen = null, cameraStream = null, aprendiendoVoz =
 /* ── Reintentos automáticos para errores de red del reconocedor ──
    El servicio de voz de Chrome necesita internet. Si falla por «network»,
    reiniciamos automáticamente con backoff exponencial para no quedar sordos. */
-let reintentosRed = 0, maxReintentosRed = 10;
+let reintentosRed = 0, maxReintentosRed = 3;
 let synth = window.speechSynthesis;
 
 const $ = (id) => document.getElementById(id);
@@ -390,7 +390,31 @@ function iniciarReconocimiento() {
       toast("Sin conexión con el servicio de voz. Reintentando en " + Math.round(retraso / 1000) + " s…");
       log("Error de red en reconocedor (intento " + reintentosRed + "/" + maxReintentosRed + ")", "warn");
       if (reintentosRed >= maxReintentosRed) {
-        toast("Servicio de voz no disponible tras varios intentos. Verifica tu conexión a internet.");
+        // FALLBACK AUTOMÁTICO A VOSK: si Web Speech falla repetidamente por red,
+        // cambiamos al motor Vosk offline sin que el usuario tenga que hacer nada.
+        (async () => {
+          try {
+            cfg.motorVoz = "vosk";
+            try { localStorage.setItem("viernes_cfg", JSON.stringify(cfg)); } catch (e) {}
+            log("Web Speech falló por red. Cambiando a Vosk (offline) automáticamente…", "warn");
+            toast("Web Speech falló. Cambiando a reconocimiento offline (Vosk)…");
+            // Detener reconocedor web y activar Vosk
+            if (recognition) { try { recognition.stop(); } catch (e) {} recognition = null; }
+            const r = await window.VoskSTT.iniciar((texto) => {
+              if (speaking) return;
+              acumularFinal(texto, 0);
+            });
+            if (r.ok) {
+              toast("Vosk offline activo. Ya puedes hablar sin internet.", "ok");
+              log("Vosk activado como fallback de red", "ok");
+            } else {
+              toast("Vosk no pudo iniciar: " + (r.error || "error desconocido"));
+              log("Vosk fallback falló: " + (r.error || "error desconocido"), "error");
+            }
+          } catch (e) {
+            log("Error activando Vosk fallback: " + e.message, "error");
+          }
+        })();
         reintentosRed = 0;
         return;
       }
