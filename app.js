@@ -40,6 +40,10 @@ function confSana(conf) {
 }
 let brainGen = 0; // token del render del cerebro (permite reemplazo en caliente)
 let historial = [], contextoImagen = null, cameraStream = null, aprendiendoVoz = false, avisoValvulaVoz = false;
+/* ── Reintentos automáticos para errores de red del reconocedor ──
+   El servicio de voz de Chrome necesita internet. Si falla por «network»,
+   reiniciamos automáticamente con backoff exponencial para no quedar sordos. */
+let reintentosRed = 0, maxReintentosRed = 10;
 let synth = window.speechSynthesis;
 
 const $ = (id) => document.getElementById(id);
@@ -362,6 +366,11 @@ function iniciarReconocimiento() {
   recognition.onresult = (e) => {
     // Viernes está hablando: ignorar (evita que el micrófono capte su propia voz)
     if (speaking) return;
+    // Éxito: resetear contador de reintentos de red
+    if (reintentosRed > 0) {
+      reintentosRed = 0;
+      log("Servicio de voz recuperado", "ok");
+    }
     let fin = "", inter = "", confSum = 0, confN = 0;
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const r = e.results[i]; if (r.isFinal) { fin += r[0].transcript + " "; if (r[0].confidence && r[0].confidence > 0) { confSum += r[0].confidence; confN++; } } else inter += r[0].transcript;
@@ -372,7 +381,25 @@ function iniciarReconocimiento() {
   };
   recognition.onerror = (e) => {
     if (e.error !== "no-speech" && e.error !== "aborted") log("Micrófono: error «" + e.error + "»", "warn");
-    if (e.error === "network") toast("Sin conexión con el servicio de voz. Reintentando…");
+    if (e.error === "network") {
+      // ERROR DE RED: el servicio de voz de Chrome necesita internet.
+      // Reiniciamos automáticamente con backoff exponencial para no quedar sordos.
+      reintentosRed++;
+      const retraso = Math.min(1000 * Math.pow(2, Math.min(reintentosRed - 1, 4)), 30000);
+      toast("Sin conexión con el servicio de voz. Reintentando en " + Math.round(retraso / 1000) + " s…");
+      log("Error de red en reconocedor (intento " + reintentosRed + "/" + maxReintentosRed + ")", "warn");
+      if (reintentosRed >= maxReintentosRed) {
+        toast("Servicio de voz no disponible tras varios intentos. Verifica tu conexión a internet.");
+        reintentosRed = 0;
+        return;
+      }
+      setTimeout(() => {
+        if (listening && !speaking && !document.hidden && recognition) {
+          try { recognition.start(); } catch (e2) {}
+        }
+      }, retraso);
+      return;
+    }
     if (e.error === "not-allowed" || e.error === "service-not-allowed") { listening = false; setEstado("standby"); log("Micrófono denegado", "error"); }
     else if (e.error === "audio-capture" && ((VE && VE.abierta) || (window.ViernesVozId && ViernesVozId.abierto))) {
       // CONFLICTO DE MICRÓFONO: la segunda línea del oído frontal o del oído
