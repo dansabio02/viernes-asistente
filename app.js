@@ -394,8 +394,17 @@ function iniciarReconocimiento() {
         return;
       }
       setTimeout(() => {
-        if (listening && !speaking && !document.hidden && recognition) {
-          try { recognition.start(); } catch (e2) {}
+        if (!listening || speaking || document.hidden) return;
+        // Recrear el reconocedor para evitar estado roto tras error de red
+        try {
+          if (recognition) { try { recognition.stop(); } catch (e) {} recognition = null; }
+          iniciarReconocimiento();
+          if (recognition) {
+            recognition.start();
+            log("Reconocedor reiniciado tras error de red", "ok");
+          }
+        } catch (e2) {
+          log("Error reiniciando tras red: " + e2.message, "error");
         }
       }, retraso);
       return;
@@ -536,7 +545,20 @@ async function activarMicrofono() {
     };
     try { window.ViernesNativo.iniciarEscucha(); log("Escucha nativa activa (funciona con la pantalla bloqueada)", "ok"); } catch (e) { log("Escucha nativa: " + e.message, "error"); }
   } else {
-    try { recognition.start(); } catch (e) { log("Error al iniciar micrófono: " + e.message, "error"); }
+    try {
+      recognition.start();
+    } catch (e) {
+      log("Error al iniciar micrófono: " + e.message, "error");
+      // Si start() falla, el reconocedor puede estar en estado roto: recrearlo y reintentar una vez
+      try {
+        recognition = null;
+        iniciarReconocimiento();
+        if (recognition) recognition.start();
+        log("Micrófono reiniciado tras error de start()", "ok");
+      } catch (e2) {
+        log("Error reiniciando micrófono: " + e2.message, "error");
+      }
+    }
   }
   $("btnPower").classList.add("active"); $("btnMic").classList.add("active");
   $("powerLabel").textContent = "ACTIVO";
