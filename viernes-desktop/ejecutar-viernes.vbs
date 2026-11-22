@@ -1,4 +1,4 @@
-﻿' VIERNES Desktop - Ejecutor directo
+' VIERNES Desktop - Ejecutor directo
 ' Doble clic para iniciar Viernes en una ventana que se queda abierta
 
 Dim shell, scriptDir
@@ -9,4 +9,3 @@ shell.CurrentDirectory = scriptDir
 shell.Run "cmd /k ""iniciar-viernes.bat""", 1, True
 Set shell = Nothing
 Set fso = Nothing
-
