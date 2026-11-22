@@ -4,11 +4,17 @@ const { app, BrowserWindow, ipcMain, dialog, notification, shell, nativeImage } 
 const path = require("path");
 const fs = require("fs");
 const { exec, execSync, spawn } = require("child_process");
-const robot = require("robotjs");
+let robot = null;
+try {
+  robot = require("robotjs");
+} catch (e) {
+  robot = null;
+  console.log("ADVERTENCIA: robotjs no disponible (requiere compilacion nativa). Habilidades de mouse/teclado/ventanas desactivadas.");
+}
 
-// ═════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
 // CONFIGURACIÓN DE SEGURIDAD
-// ═════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 
 // Comandos bloqueados (nunca se ejecutan, sin confirmación)
 const COMANDOS_BLOQUEADOS = [
@@ -26,9 +32,9 @@ const RUTAS_SENSIBLES = [
 let mainWindow = null;
 let ventanaConfirmacion = null;
 
-// ═════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 // VENTANA PRINCIPAL
-// ═════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 
 function crearVentanaPrincipal() {
   mainWindow = new BrowserWindow({
@@ -74,9 +80,9 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// ═════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 // UTILIDADES DE SEGURIDAD
-// ═════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 
 function comandoEstaBloqueado(comando) {
   return COMANDOS_BLOQUEADOS.some((patron) => patron.test(comando));
@@ -89,42 +95,38 @@ function rutaEsSensible(ruta) {
 function esRutaSegura(ruta) {
   if (!ruta || typeof ruta !== "string") return false;
   const normalizada = path.normalize(ruta);
-  // No permitir rutas absolutas fuera del usuario sin confirmación
   if (path.isAbsolute(normalizada) && rutaEsSensible(normalizada)) return false;
   return true;
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 // IPC - HABILIDADES DE PC
-// ═════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 
 // ── 1. ABRIR PROGRAMA ──
 ipcMain.handle("viernes:abrir-programa", async (event, nombrePrograma) => {
   if (!nombrePrograma || typeof nombrePrograma !== "string") {
-    return { exito: false, error: "Nombre de programa inválido" };
+    return { exito: false, error: "Nombre de programa invalido" };
   }
 
-  // Verificar si el programa está en la lista de bloqueados
   if (comandoEstaBloqueado(nombrePrograma)) {
-    return { exito: false, error: "Este programa está bloqueado por seguridad" };
+    return { exito: false, error: "Este programa esta bloqueado por seguridad" };
   }
 
   try {
-    // Intentar abrir con shell.openPath (método nativo de Windows)
     await shell.openPath(nombrePrograma);
-    return { exito: true, mensaje: `Programa "${nombrePrograma}" abierto` };
+    return { exito: true, mensaje: 'Programa "' + nombrePrograma + '" abierto' };
   } catch (e) {
-    // Si falla, intentar con comando start de Windows
     try {
       await new Promise((resolve, reject) => {
-        exec(`start "" "${nombrePrograma}"`, (error, stdout, stderr) => {
+        exec('start "" "' + nombrePrograma + '"', (error, stdout, stderr) => {
           if (error) reject(error);
           else resolve();
         });
       });
-      return { exito: true, mensaje: `Programa "${nombrePrograma}" abierto` };
+      return { exito: true, mensaje: 'Programa "' + nombrePrograma + '" abierto' };
     } catch (e2) {
-      return { exito: false, error: `No se pudo abrir "${nombrePrograma}": ${e2.message}` };
+      return { exito: false, error: 'No se pudo abrir "' + nombrePrograma + '": ' + e2.message };
     }
   }
 });
@@ -132,11 +134,11 @@ ipcMain.handle("viernes:abrir-programa", async (event, nombrePrograma) => {
 // ── 2. EJECUTAR COMANDO ──
 ipcMain.handle("viernes:ejecutar-comando", async (event, comando) => {
   if (!comando || typeof comando !== "string") {
-    return { exito: false, error: "Comando inválido" };
+    return { exito: false, error: "Comando invalido" };
   }
 
   if (comandoEstaBloqueado(comando)) {
-    return { exito: false, error: "Este comando está bloqueado por seguridad del sistema" };
+    return { exito: false, error: "Este comando esta bloqueado por seguridad del sistema" };
   }
 
   try {
@@ -158,7 +160,7 @@ ipcMain.handle("viernes:ejecutar-comando", async (event, comando) => {
 // ── 3. LEER ARCHIVO ──
 ipcMain.handle("viernes:leer-archivo", async (event, rutaArchivo) => {
   if (!rutaArchivo || typeof rutaArchivo !== "string") {
-    return { exito: false, error: "Ruta de archivo inválida" };
+    return { exito: false, error: "Ruta de archivo invalida" };
   }
 
   try {
@@ -168,11 +170,11 @@ ipcMain.handle("viernes:leer-archivo", async (event, rutaArchivo) => {
 
     const stats = fs.statSync(rutaArchivo);
     if (stats.size > 5 * 1024 * 1024) {
-      return { exito: false, error: "Archivo demasiado grande (máximo 5 MB)" };
+      return { exito: false, error: "Archivo demasiado grande (maximo 5 MB)" };
     }
 
     const contenido = fs.readFileSync(rutaArchivo, "utf8");
-    return { exito: true, contenido, nombre: path.basename(rutaArchivo), tamaño: stats.size };
+    return { exito: true, contenido: contenido, nombre: path.basename(rutaArchivo), tamaño: stats.size };
   } catch (e) {
     return { exito: false, error: e.message };
   }
@@ -181,7 +183,7 @@ ipcMain.handle("viernes:leer-archivo", async (event, rutaArchivo) => {
 // ── 4. ESCRIBIR ARCHIVO ──
 ipcMain.handle("viernes:escribir-archivo", async (event, rutaArchivo, contenido) => {
   if (!rutaArchivo || typeof rutaArchivo !== "string") {
-    return { exito: false, error: "Ruta de archivo inválida" };
+    return { exito: false, error: "Ruta de archivo invalida" };
   }
 
   if (rutaEsSensible(rutaArchivo)) {
@@ -194,7 +196,7 @@ ipcMain.handle("viernes:escribir-archivo", async (event, rutaArchivo, contenido)
       fs.mkdirSync(dir, { recursive: true });
     }
     fs.writeFileSync(rutaArchivo, contenido, "utf8");
-    return { exito: true, mensaje: `Archivo "${path.basename(rutaArchivo)}" guardado` };
+    return { exito: true, mensaje: 'Archivo "' + path.basename(rutaArchivo) + '" guardado' };
   } catch (e) {
     return { exito: false, error: e.message };
   }
@@ -203,7 +205,7 @@ ipcMain.handle("viernes:escribir-archivo", async (event, rutaArchivo, contenido)
 // ── 5. LISTAR CARPETA ──
 ipcMain.handle("viernes:listar-carpeta", async (event, rutaCarpeta) => {
   if (!rutaCarpeta || typeof rutaCarpeta !== "string") {
-    return { exito: false, error: "Ruta de carpeta inválida" };
+    return { exito: false, error: "Ruta de carpeta invalida" };
   }
 
   try {
@@ -218,7 +220,7 @@ ipcMain.handle("viernes:listar-carpeta", async (event, rutaCarpeta) => {
       ruta: path.join(rutaCarpeta, entrada.name)
     }));
 
-    return { exito: true, items, ruta: rutaCarpeta };
+    return { exito: true, items: items, ruta: rutaCarpeta };
   } catch (e) {
     return { exito: false, error: e.message };
   }
@@ -227,7 +229,7 @@ ipcMain.handle("viernes:listar-carpeta", async (event, rutaCarpeta) => {
 // ── 6. CREAR CARPETA ──
 ipcMain.handle("viernes:crear-carpeta", async (event, rutaCarpeta) => {
   if (!rutaCarpeta || typeof rutaCarpeta !== "string") {
-    return { exito: false, error: "Ruta de carpeta inválida" };
+    return { exito: false, error: "Ruta de carpeta invalida" };
   }
 
   if (rutaEsSensible(rutaCarpeta)) {
@@ -236,7 +238,7 @@ ipcMain.handle("viernes:crear-carpeta", async (event, rutaCarpeta) => {
 
   try {
     fs.mkdirSync(rutaCarpeta, { recursive: true });
-    return { exito: true, mensaje: `Carpeta "${path.basename(rutaCarpeta)}" creada` };
+    return { exito: true, mensaje: 'Carpeta "' + path.basename(rutaCarpeta) + '" creada' };
   } catch (e) {
     return { exito: false, error: e.message };
   }
@@ -265,11 +267,9 @@ ipcMain.handle("viernes:info-sistema", async () => {
     const nodeVersion = process.version;
     const electronVersion = process.versions.electron;
 
-    // Obtener nombre de usuario
     let usuario = "usuario";
     try { usuario = execSync("whoami", { encoding: "utf8" }).trim(); } catch (e) {}
 
-    // Obtener nombre de la computadora
     let computadora = "PC";
     try { computadora = execSync("hostname", { encoding: "utf8" }).trim(); } catch (e) {}
 
@@ -277,8 +277,8 @@ ipcMain.handle("viernes:info-sistema", async () => {
       exito: true,
       plataforma: platform,
       arquitectura: arch,
-      usuario,
-      computadora,
+      usuario: usuario,
+      computadora: computadora,
       versionNode: nodeVersion,
       versionElectron: electronVersion
     };
@@ -289,6 +289,9 @@ ipcMain.handle("viernes:info-sistema", async () => {
 
 // ── 9. CONTROL DE MOUSE Y TECLADO (robotjs) ──
 ipcMain.handle("viernes:mover-mouse", async (event, x, y) => {
+  if (!robot) {
+    return { exito: false, error: "robotjs no disponible. Instala Visual Studio con C++ para habilitar control de mouse." };
+  }
   try {
     robot.moveMouse(parseInt(x), parseInt(y));
     return { exito: true };
@@ -297,7 +300,11 @@ ipcMain.handle("viernes:mover-mouse", async (event, x, y) => {
   }
 });
 
-ipcMain.handle("viernes:clic-raton", async (event, boton = "izquierdo") => {
+ipcMain.handle("viernes:clic-raton", async (event, boton) => {
+  if (!robot) {
+    return { exito: false, error: "robotjs no disponible. Instala Visual Studio con C++ para habilitar control de mouse." };
+  }
+  boton = boton || "izquierdo";
   try {
     robot.mouseClick(boton === "derecho" ? "right" : "left");
     return { exito: true };
@@ -307,6 +314,9 @@ ipcMain.handle("viernes:clic-raton", async (event, boton = "izquierdo") => {
 });
 
 ipcMain.handle("viernes:escribir-texto", async (event, texto) => {
+  if (!robot) {
+    return { exito: false, error: "robotjs no disponible. Instala Visual Studio con C++ para habilitar escritura de texto." };
+  }
   try {
     robot.typeString(texto);
     return { exito: true };
@@ -316,6 +326,9 @@ ipcMain.handle("viernes:escribir-texto", async (event, texto) => {
 });
 
 ipcMain.handle("viernes:presionar-tecla", async (event, tecla) => {
+  if (!robot) {
+    return { exito: false, error: "robotjs no disponible. Instala Visual Studio con C++ para habilitar presion de teclas." };
+  }
   try {
     robot.keyTap(tecla);
     return { exito: true };
@@ -326,6 +339,9 @@ ipcMain.handle("viernes:presionar-tecla", async (event, tecla) => {
 
 // ── 10. OBTENER POSICIÓN DEL MOUSE ──
 ipcMain.handle("viernes:posicion-mouse", async () => {
+  if (!robot) {
+    return { exito: false, error: "robotjs no disponible. Instala Visual Studio con C++ para habilitar control de mouse." };
+  }
   try {
     const pos = robot.getMousePos();
     return { exito: true, x: pos.x, y: pos.y };
@@ -336,6 +352,9 @@ ipcMain.handle("viernes:posicion-mouse", async () => {
 
 // ── 11. LISTAR VENTANAS ABIERTAS ──
 ipcMain.handle("viernes:listar-ventanas", async () => {
+  if (!robot) {
+    return { exito: false, error: "robotjs no disponible. Instala Visual Studio con C++ para habilitar control de ventanas." };
+  }
   try {
     const ventanas = robot.getAllWindows();
     const lista = ventanas.map((w) => ({
@@ -353,6 +372,9 @@ ipcMain.handle("viernes:listar-ventanas", async () => {
 
 // ── 12. ACTIVAR/ENFOCAR VENTANA ──
 ipcMain.handle("viernes:activar-ventana", async (event, tituloVentana) => {
+  if (!robot) {
+    return { exito: false, error: "robotjs no disponible. Instala Visual Studio con C++ para habilitar control de ventanas." };
+  }
   if (!tituloVentana || typeof tituloVentana !== "string") {
     return { exito: false, error: "Titulo de ventana invalido" };
   }
@@ -362,7 +384,6 @@ ipcMain.handle("viernes:activar-ventana", async (event, tituloVentana) => {
     if (!ventana) {
       return { exito: false, error: "No se encontro ninguna ventana con el titulo: " + tituloVentana };
     }
-    // robotjs no tiene focus directo, usamos moveMouse + click para dar foco
     const centroX = ventana.bounds.x + Math.floor(ventana.bounds.width / 2);
     const centroY = ventana.bounds.y + Math.floor(ventana.bounds.height / 2);
     robot.moveMouse(centroX, centroY);
@@ -375,6 +396,9 @@ ipcMain.handle("viernes:activar-ventana", async (event, tituloVentana) => {
 
 // ── 13. TECLA COMBINADA (Ctrl+C, Ctrl+V, Alt+Tab, etc.) ──
 ipcMain.handle("viernes:tecla-combinada", async (event, modificador, tecla) => {
+  if (!robot) {
+    return { exito: false, error: "robotjs no disponible. Instala Visual Studio con C++ para habilitar teclas combinadas." };
+  }
   if (!modificador || !tecla) {
     return { exito: false, error: "Modificador y tecla son requeridos" };
   }
@@ -414,7 +438,7 @@ ipcMain.handle("viernes:establecer-portapapeles", async (event, texto) => {
   try {
     const { execSync } = require("child_process");
     const textoEscapado = texto.replace(/'/g, "''");
-    execSync(`powershell -Command "Set-Clipboard -Value '${textoEscapado}'"`, { encoding: "utf8", timeout: 5000 });
+    execSync("powershell -Command \"Set-Clipboard -Value '" + textoEscapado + "'\"", { encoding: "utf8", timeout: 5000 });
     return { exito: true, mensaje: "Portapapeles actualizado" };
   } catch (e) {
     return { exito: false, error: e.message };
@@ -423,6 +447,9 @@ ipcMain.handle("viernes:establecer-portapapeles", async (event, texto) => {
 
 // ── 16. OBTENER VENTANA ACTIVA ──
 ipcMain.handle("viernes:ventana-activa", async () => {
+  if (!robot) {
+    return { exito: false, error: "robotjs no disponible. Instala Visual Studio con C++ para habilitar control de ventanas." };
+  }
   try {
     const ventanaActiva = robot.getActiveWindow();
     if (!ventanaActiva) {
