@@ -9,37 +9,35 @@
 (function() {
 
 const MODELO_ESP = "vosk-model-small-es-0.42";
-const MODELO_URL = "https://alphacephei.com/vosk/models/" + MODELO_ESP + ".zip";
-const CDN_VOSK = "https://cdn.jsdelivr.net/npm/vosk-browser@0.0.8/dist/vosk-browser.min.js";
+const MODELO_URL = "https://alphacephei.com/vosk/models/" + MODELO_ESP + ".tar.gz";
+const CDN_VOSK = "https://cdn.jsdelivr.net/npm/vosk-browser@0.0.8/dist/vosk.js";
 
-let vosk = null;           // Instancia de Vosk (window.Vosk)
-let recognizer = null;     // Reconocedor activo
+let Vosk = null;           // Clase Vosk global
 let model = null;          // Modelo cargado
+let recognizer = null;     // Reconocedor activo
 let cargando = false;      // ¿Está descargando/cargando el modelo?
 let listo = false;         // ¿Listo para reconocer?
 let error = null;          // Último error
 let audioContext = null;   // AudioContext para capturar micrófono
-let processor = null;      // AudioWorklet o ScriptProcessorNode
+let processor = null;      // ScriptProcessorNode
 let stream = null;         // MediaStream del micrófono
 let onResult = null;       // Callback con el texto reconocido
-let buffer = [];           // Buffer de audio PCM
-let sampleRate = 16000;    // Vosk requiere 16 kHz
 let activo = false;        // ¿Está escuchando?
 
 /* ── Cargar vosk-browser desde CDN ── */
 function cargarVosk() {
   return new Promise((resolve, reject) => {
     if (window.Vosk) {
-      vosk = window.Vosk;
-      resolve(vosk);
+      Vosk = window.Vosk;
+      resolve(Vosk);
       return;
     }
     const s = document.createElement("script");
     s.src = CDN_VOSK;
     s.onload = () => {
-      vosk = window.Vosk;
-      if (!vosk) reject(new Error("Vosk no se expuso como window.Vosk"));
-      else resolve(vosk);
+      Vosk = window.Vosk;
+      if (!Vosk) reject(new Error("Vosk no se expuso como window.Vosk"));
+      else resolve(Vosk);
     };
     s.onerror = () => reject(new Error("No se pudo cargar vosk-browser desde CDN"));
     document.head.appendChild(s);
@@ -48,37 +46,49 @@ function cargarVosk() {
 
 /* ── Descargar y cargar el modelo de español ── */
 async function cargarModelo() {
-  if (listo) return;
-  if (cargando) return; // ya está cargando
+  if (listo) return { ok: true, mensaje: "Ya listo" };
+  if (cargando) return { ok: false, error: "Ya se está cargando el modelo" };
+
   cargando = true;
+  error = null;
 
   try {
     await cargarVosk();
 
-    // Vosk necesita el modelo descomprimido. Descargamos el ZIP y lo cargamos.
-    // Como no podemos descomprimir ZIP fácilmente en el navegador sin librerías,
-    // usamos el modelo ya empaquetado si existe, o descargamos el ZIP y lo leemos.
-    // Para simplicidad y compatibilidad, intentamos cargar desde una URL directa.
-    const modeloBlob = await fetch(modeloToBlobUrl()).then(r => r.blob());
+    // Vosk-browser carga el modelo desde una URL .tar.gz
+    // Usamos Vosk.createModel que maneja la carga asíncrona y el Web Worker
+    model = await Vosk.createModel(MODELO_URL);
 
-    model = await vosk.Model.fromBuffer(await modeloBlob.arrayBuffer());
-    recognizer = new vosk.KaldiRecognizer(model, sampleRate);
+    if (!model.ready) {
+      throw new Error("El modelo no está listo después de cargar");
+    }
+
+    recognizer = model.KaldiRecognizer();
+
+    // Configurar eventos de resultado
+    recognizer.on("result", (message) => {
+      if (!activo) return;
+      const texto = (message.result && message.result.text) || "";
+      if (texto && texto.trim() && onResult) {
+        onResult(texto.trim());
+      }
+    });
+
+    recognizer.on("partialresult", (message) => {
+      // Resultados parciales opcionales - no los usamos para evitar ruido
+    });
+
     listo = true;
-    error = null;
     cargando = false;
-    return { ok: true, mensaje: "Modelo de español cargado" };
+    return { ok: true, mensaje: "Modelo de español cargado (Vosk offline)" };
   } catch (e) {
     cargando = false;
     error = e.message;
     listo = false;
+    model = null;
+    recognizer = null;
     return { ok: false, error: error };
   }
-}
-
-/* Algunos entornos no pueden leer ZIP directamente. Intentamos una URL alternativa. */
-function modeloToBlobUrl() {
-  // Intentamos descargar el ZIP y crear un blob URL
-  return MODELO_URL;
 }
 
 /* ── Iniciar reconocimiento ── */
@@ -91,7 +101,6 @@ async function iniciar(callback) {
 
   onResult = callback;
   activo = true;
-  buffer = [];
 
   try {
     stream = await navigator.mediaDevices.getUserMedia({
@@ -107,32 +116,19 @@ async function iniciar(callback) {
     audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
     const fuente = audioContext.createMediaStreamSource(stream);
 
-    // Usar ScriptProcessorNode para capturar PCM crudo (compatible con la mayoría de navegadores)
+    // ScriptProcessorNode para capturar PCM crudo
     const bufferSize = 4096;
-    const nodo = audioContext.createScriptProcessor(bufferSize, 1, 1);
+    processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
 
-    nodo.onaudioprocess = (ev) => {
+    processor.onaudioprocess = (ev) => {
       if (!activo) return;
       const input = ev.inputBuffer.getChannelData(0);
-      // Convertir Float32 a Int16 para Vosk
-      const pcm16 = new Int16Array(input.length);
-      for (let i = 0; i < input.length; i++) {
-        const s = Math.max(-1, Math.min(1, input[i]));
-        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-      }
-      const resultado = recognizer.acceptWaveform(pcm16);
-      if (resultado) {
-        const json = JSON.parse(resultado);
-        const texto = json.text || "";
-        if (texto && texto.trim() && onResult) {
-          onResult(texto.trim());
-        }
-      }
-      // También podemos aceptar resultados parciales si quisieramos
+      // Vosk-browser acepta AudioBuffer directamente
+      recognizer.acceptWaveform(input);
     };
 
-    fuente.connect(nodo);
-    nodo.connect(audioContext.destination);
+    fuente.connect(processor);
+    processor.connect(audioContext.destination);
 
     return { ok: true, mensaje: "Vosk escuchando (offline)" };
   } catch (e) {
@@ -151,7 +147,6 @@ function detener() {
   processor = null;
   audioContext = null;
   stream = null;
-  buffer = [];
   return { ok: true, mensaje: "Vosk detenido" };
 }
 
