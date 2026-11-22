@@ -1,22 +1,22 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 title VIERNES Desktop - Instalador
 
 echo.
 echo   ============================================
-echo     VIERNES DESKTOP · Instalador
+echo     VIERNES DESKTOP - Instalador
 echo   ============================================
 echo.
 
-:: Verificar si Node.js está instalado
+rem Verificar si Node.js esta instalado
 node --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Node.js no está instalado.
+    echo [ERROR] Node.js no esta instalado.
     echo.
     echo Por favor, descarga e instala Node.js desde:
     echo   https://nodejs.org/
     echo.
-    echo Después de instalar, ejecuta este archivo nuevamente.
+    echo Despues de instalar, ejecuta este archivo nuevamente.
     echo.
     pause
     exit /b 1
@@ -31,7 +31,7 @@ cd /d "%~dp0"
 npm install
 
 if %errorlevel% neq 0 (
-    echo [ERROR] Falló la instalación de dependencias.
+    echo [ERROR] Fallo la instalacion de dependencias.
     pause
     exit /b 1
 )
@@ -42,10 +42,10 @@ echo.
 
 echo Opciones:
 echo   1. Ejecutar Viernes Desktop (desarrollo)
-echo   2. Construir instalador para Windows (producción)
+echo   2. Construir instalador para Windows (produccion)
 echo   3. Salir
 echo.
-set /p opcion="Elige una opción (1-3): "
+set /p opcion="Elige una opcion (1-3): "
 
 if "%opcion%"=="1" (
     echo.
@@ -56,9 +56,10 @@ if "%opcion%"=="1" (
     echo Construyendo instalador para Windows...
     npm run build
     echo.
-    echo El instalador estará en viernes-desktop/dist/
+    echo El instalador estara en viernes-desktop/dist/
 ) else (
     echo Saliendo...
 )
 
 pause
+
