@@ -30,7 +30,17 @@ contextBridge.exposeInMainWorld("ViernesPC", {
   clicRaton: (boton) => ipcRenderer.invoke("viernes:clic-raton", boton),
   escribirTexto: (texto) => ipcRenderer.invoke("viernes:escribir-texto", texto),
   presionarTecla: (tecla) => ipcRenderer.invoke("viernes:presionar-tecla", tecla),
+  teclaCombinada: (modificador, tecla) => ipcRenderer.invoke("viernes:tecla-combinada", modificador, tecla),
   posicionMouse: () => ipcRenderer.invoke("viernes:posicion-mouse"),
+
+  // ── Ventanas ──
+  listarVentanas: () => ipcRenderer.invoke("viernes:listar-ventanas"),
+  activarVentana: (titulo) => ipcRenderer.invoke("viernes:activar-ventana", titulo),
+  ventanaActiva: () => ipcRenderer.invoke("viernes:ventana-activa"),
+
+  // ── Portapapeles ──
+  obtenerPortapapeles: () => ipcRenderer.invoke("viernes:obtener-portapapeles"),
+  establecerPortapapeles: (texto) => ipcRenderer.invoke("viernes:establecer-portapapeles", texto),
 
   // ── Escuchar confirmaciones del usuario ──
   onConfirmarAccion: (callback) => {

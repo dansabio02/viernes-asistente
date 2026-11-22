@@ -333,3 +333,110 @@ ipcMain.handle("viernes:posicion-mouse", async () => {
     return { exito: false, error: e.message };
   }
 });
+
+// ── 11. LISTAR VENTANAS ABIERTAS ──
+ipcMain.handle("viernes:listar-ventanas", async () => {
+  try {
+    const ventanas = robot.getAllWindows();
+    const lista = ventanas.map((w) => ({
+      titulo: w.title || "(sin titulo)",
+      x: w.bounds.x,
+      y: w.bounds.y,
+      ancho: w.bounds.width,
+      alto: w.bounds.height
+    }));
+    return { exito: true, ventanas: lista };
+  } catch (e) {
+    return { exito: false, error: e.message };
+  }
+});
+
+// ── 12. ACTIVAR/ENFOCAR VENTANA ──
+ipcMain.handle("viernes:activar-ventana", async (event, tituloVentana) => {
+  if (!tituloVentana || typeof tituloVentana !== "string") {
+    return { exito: false, error: "Titulo de ventana invalido" };
+  }
+  try {
+    const ventanas = robot.getAllWindows();
+    const ventana = ventanas.find((w) => w.title && w.title.toLowerCase().includes(tituloVentana.toLowerCase()));
+    if (!ventana) {
+      return { exito: false, error: "No se encontro ninguna ventana con el titulo: " + tituloVentana };
+    }
+    // robotjs no tiene focus directo, usamos moveMouse + click para dar foco
+    const centroX = ventana.bounds.x + Math.floor(ventana.bounds.width / 2);
+    const centroY = ventana.bounds.y + Math.floor(ventana.bounds.height / 2);
+    robot.moveMouse(centroX, centroY);
+    robot.mouseClick();
+    return { exito: true, mensaje: "Ventana activada: " + ventana.title };
+  } catch (e) {
+    return { exito: false, error: e.message };
+  }
+});
+
+// ── 13. TECLA COMBINADA (Ctrl+C, Ctrl+V, Alt+Tab, etc.) ──
+ipcMain.handle("viernes:tecla-combinada", async (event, modificador, tecla) => {
+  if (!modificador || !tecla) {
+    return { exito: false, error: "Modificador y tecla son requeridos" };
+  }
+  try {
+    const mods = modificador.toLowerCase();
+    let keyDown;
+    if (mods.includes("ctrl")) keyDown = "control";
+    else if (mods.includes("alt")) keyDown = "alt";
+    else if (mods.includes("shift")) keyDown = "shift";
+    else keyDown = modificador;
+
+    robot.keyToggle(keyDown, "down");
+    robot.keyTap(tecla);
+    robot.keyToggle(keyDown, "up");
+    return { exito: true, mensaje: "Combinacion enviada: " + modificador + "+" + tecla };
+  } catch (e) {
+    return { exito: false, error: e.message };
+  }
+});
+
+// ── 14. OBTENER CONTENIDO DEL PORTAPAPELES ──
+ipcMain.handle("viernes:obtener-portapapeles", async () => {
+  try {
+    const { execSync } = require("child_process");
+    const resultado = execSync('powershell -Command "Get-Clipboard"', { encoding: "utf8", timeout: 5000 });
+    return { exito: true, contenido: resultado.toString().trim() };
+  } catch (e) {
+    return { exito: false, error: e.message };
+  }
+});
+
+// ── 15. ESTABLECER CONTENIDO DEL PORTAPAPELES ──
+ipcMain.handle("viernes:establecer-portapapeles", async (event, texto) => {
+  if (!texto || typeof texto !== "string") {
+    return { exito: false, error: "Texto invalido para portapapeles" };
+  }
+  try {
+    const { execSync } = require("child_process");
+    const textoEscapado = texto.replace(/'/g, "''");
+    execSync(`powershell -Command "Set-Clipboard -Value '${textoEscapado}'"`, { encoding: "utf8", timeout: 5000 });
+    return { exito: true, mensaje: "Portapapeles actualizado" };
+  } catch (e) {
+    return { exito: false, error: e.message };
+  }
+});
+
+// ── 16. OBTENER VENTANA ACTIVA ──
+ipcMain.handle("viernes:ventana-activa", async () => {
+  try {
+    const ventanaActiva = robot.getActiveWindow();
+    if (!ventanaActiva) {
+      return { exito: false, error: "No hay ventana activa" };
+    }
+    return {
+      exito: true,
+      titulo: ventanaActiva.title || "(sin titulo)",
+      x: ventanaActiva.bounds.x,
+      y: ventanaActiva.bounds.y,
+      ancho: ventanaActiva.bounds.width,
+      alto: ventanaActiva.bounds.height
+    };
+  } catch (e) {
+    return { exito: false, error: e.message };
+  }
+});

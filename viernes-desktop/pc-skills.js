@@ -8,11 +8,13 @@
 
 const PC_SKILLS = {
   nombre: "Automatización de PC",
-  version: "1.0.0",
+  version: "1.1.0",
   habilidades: [
     "abrir_programa", "ejecutar_comando", "leer_archivo",
     "escribir_archivo", "listar_carpeta", "crear_carpeta",
     "mover_mouse", "clic_raton", "escribir_texto", "presionar_tecla",
+    "tecla_combinada", "listar_ventanas", "activar_ventana", "ventana_activa",
+    "obtener_portapapeles", "establecer_portapapeles",
     "notificar", "info_sistema"
   ]
 };
@@ -97,6 +99,89 @@ function detectarIntencionPC(texto) {
     return resultado;
   }
 
+  // ── LISTAR VENTANAS ──
+  if (/que\s+ventanas\s+hay\s+abiertas|listar\s+ventanas|ventanas\s+abiertas|cuales\s+ventanas/i.test(n)) {
+    resultado.esPC = true;
+    resultado.accion = "listar_ventanas";
+    resultado.parametros = {};
+    resultado.confianza = 0.9;
+    return resultado;
+  }
+
+  // ── ACTIVAR VENTANA ──
+  const mActivarVentana = n.match(/(?:activa|activar|pone\s+en\s+primer\s+plano|enfoca|abre\s+la\s+ventana\s+de)\s+(?:la\s+)?ventana\s+(?:de\s+)?(.+)/i);
+  if (mActivarVentana) {
+    resultado.esPC = true;
+    resultado.accion = "activar_ventana";
+    resultado.parametros = { titulo: mActivarVentana[1].trim() };
+    resultado.confianza = 0.85;
+    return resultado;
+  }
+
+  // ── VENTANA ACTIVA ──
+  if (/cual\s+es\s+la\s+ventana\s+activa|que\s+ventana\s+esta\s+abierta|ventana\s+activa/i.test(n)) {
+    resultado.esPC = true;
+    resultado.accion = "ventana_activa";
+    resultado.parametros = {};
+    resultado.confianza = 0.9;
+    return resultado;
+  }
+
+  // ── COPIAR (Ctrl+C) ──
+  if (/copiar|ctrl\s*\+?\s*c|copia\s+esto/i.test(n)) {
+    resultado.esPC = true;
+    resultado.accion = "tecla_combinada";
+    resultado.parametros = { modificador: "ctrl", tecla: "c" };
+    resultado.confianza = 0.85;
+    return resultado;
+  }
+
+  // ── PEGAR (Ctrl+V) ──
+  if (/pegar|ctrl\s*\+?\s*v/i.test(n)) {
+    resultado.esPC = true;
+    resultado.accion = "tecla_combinada";
+    resultado.parametros = { modificador: "ctrl", tecla: "v" };
+    resultado.confianza = 0.85;
+    return resultado;
+  }
+
+  // ── SELECCIONAR TODO (Ctrl+A) ──
+  if (/seleccionar\s+todo|ctrl\s*\+?\s*a/i.test(n)) {
+    resultado.esPC = true;
+    resultado.accion = "tecla_combinada";
+    resultado.parametros = { modificador: "ctrl", tecla: "a" };
+    resultado.confianza = 0.85;
+    return resultado;
+  }
+
+  // ── OBTENER PORTAPAPELES ──
+  if (/que\s+hay\s+en\s+el\s+portapapeles|contenido\s+del\s+portapapeles|portapapeles/i.test(n)) {
+    resultado.esPC = true;
+    resultado.accion = "obtener_portapapeles";
+    resultado.parametros = {};
+    resultado.confianza = 0.85;
+    return resultado;
+  }
+
+  // ── ESTABLECER PORTAPAPELES ──
+  const mPortapapeles = n.match(/(?:copia\s+al\s+portapapeles|escribe\s+en\s+el\s+portapapeles|portapapeles\s+con)\s+(.+)/i);
+  if (mPortapapeles) {
+    resultado.esPC = true;
+    resultado.accion = "establecer_portapapeles";
+    resultado.parametros = { texto: mPortapapeles[1].trim() };
+    resultado.confianza = 0.85;
+    return resultado;
+  }
+
+  // ── ALT+TAB ──
+  if (/cambiar\s+ventana|alt\s*\+?\s*tab|cambiar\s+de\s+aplicacion/i.test(n)) {
+    resultado.esPC = true;
+    resultado.accion = "tecla_combinada";
+    resultado.parametros = { modificador: "alt", tecla: "tab" };
+    resultado.confianza = 0.85;
+    return resultado;
+  }
+
   return resultado;
 }
 
@@ -160,6 +245,38 @@ function formatearRespuestaPC(accion, resultado) {
         return { texto: "Texto escrito.", tipo: "exito" };
       case "presionar_tecla":
         return { texto: "Tecla presionada.", tipo: "exito" };
+      case "tecla_combinada":
+        return { texto: "Combinación de teclas enviada: " + (resultado.mensaje || ""), tipo: "exito" };
+      case "listar_ventanas": {
+        const ventanas = resultado.ventanas || [];
+        if (ventanas.length === 0) {
+          return { texto: "No hay ventanas abiertas.", tipo: "exito" };
+        }
+        const nombres = ventanas.slice(0, 10).map((v) => v.titulo).join(", ");
+        return {
+          texto: "Hay " + ventanas.length + " ventana(s) abierta(s): " + nombres +
+            (ventanas.length > 10 ? " y más..." : ""),
+          tipo: "exito",
+          datos: resultado
+        };
+      }
+      case "activar_ventana":
+        return { texto: resultado.mensaje || "Ventana activada.", tipo: "exito" };
+      case "ventana_activa":
+        return {
+          texto: "Ventana activa: " + (resultado.titulo || "desconocida"),
+          tipo: "exito",
+          datos: resultado
+        };
+      case "obtener_portapapeles":
+        return {
+          texto: "Contenido del portapapeles: " + (resultado.contenido || "(vacio)").slice(0, 300) +
+            (resultado.contenido && resultado.contenido.length > 300 ? "..." : ""),
+          tipo: "exito",
+          datos: resultado
+        };
+      case "establecer_portapapeles":
+        return { texto: resultado.mensaje || "Portapapeles actualizado.", tipo: "exito" };
       default:
         return { texto: "Acción completada.", tipo: "exito" };
     }
@@ -178,7 +295,7 @@ async function interceptarPeticionPC(texto) {
   if (!intencion.esPC) return null;
 
   // Para acciones peligrosas, requerir confirmación
-  const accionesPeligrosas = ["escribir_archivo", "ejecutar_comando", "crear_carpeta"];
+  const accionesPeligrosas = ["escribir_archivo", "ejecutar_comando", "crear_carpeta", "establecer_portapapeles"];
   if (accionesPeligrosas.includes(intencion.accion)) {
     // Marcar para confirmación - el UI debe mostrar un diálogo
     intencion.requiereConfirmacion = true;

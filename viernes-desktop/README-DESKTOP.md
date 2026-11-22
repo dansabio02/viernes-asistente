@@ -11,13 +11,23 @@ Convierte a Viernes en una asistente que puede actuar **directamente en tu compu
 | **Abrir programas** | "Abre el bloc de notas" | ✅ Sí |
 | **Ejecutar comandos** | "Ejecuta el comando dir" | ✅ Sí |
 | **Leer archivos** | "Lee el archivo notas.txt" | ❌ No |
-| **Escribir archivos** | "Escribir en el archivo todo.txt que compre leche" | ✅ Sí |
+| **Escribir archivos** | "Escribir en todo.txt que compre leche" | ✅ Sí |
 | **Listar carpetas** | "¿Qué hay en la carpeta Documentos?" | ❌ No |
 | **Crear carpetas** | "Crea una carpeta llamada Proyectos" | ✅ Sí |
 | **Info del sistema** | "Dime información de mi PC" | ❌ No |
+| **Listar ventanas** | "¿Qué ventanas hay abiertas?" | ❌ No |
+| **Activar ventana** | "Activa la ventana de Bloc de notas" | ✅ Sí |
+| **Ventana activa** | "¿Cuál es la ventana activa?" | ❌ No |
+| **Copiar (Ctrl+C)** | "Copia esto" | ❌ No |
+| **Pegar (Ctrl+V)** | "Pega" | ❌ No |
+| **Seleccionar todo** | "Seleccionar todo" | ❌ No |
+| **Cambiar ventana** | "Cambiar de aplicación" | ❌ No |
+| **Portapapeles (leer)** | "¿Qué hay en el portapapeles?" | ❌ No |
+| **Portapapeles (escribir)** | "Copia al portapapeles hola mundo" | ✅ Sí |
 | **Control de mouse** | (vía comandos) | ✅ Sí |
 | **Escribir texto** | (vía comandos) | ✅ Sí |
 | **Presionar teclas** | (vía comandos) | ✅ Sí |
+| **Teclas combinadas** | (Ctrl+C, Ctrl+V, Alt+Tab) | ❌ No |
 | **Notificaciones** | (internas) | ❌ No |
 
 ---
@@ -67,6 +77,11 @@ Escribir en el archivo: C:\Users\Daniel\notas.txt
 - Escribir o modificar archivos
 - Crear carpetas
 - Controlar mouse y teclado
+- Escribir en el portapapeles
+- Activar/enfocar ventanas
+
+**Comandos bloqueados (nunca se ejecutan):**
+- `format`, `del`, `rmdir`, `shutdown`, `restart`, `reg delete`, `diskpart`, etc.
 
 **Comandos bloqueados (nunca se ejecutan):**
 - `format`, `del`, `rmdir`, `shutdown`, `restart`, `reg delete`, `diskpart`, etc.
@@ -81,13 +96,16 @@ Escribir en el archivo: C:\Users\Daniel\notas.txt
 │  ├─ Renderer: app.js + HTML/CSS (la interfaz que conoces)   │
 │  ├─ Proceso Principal: main.js (Node.js, acceso al SO)      │
 │  ├─ Preload: preload.js (puente seguro IPC)                 │
-│  └─ Habilidades PC: pc-skills.js (detección de intenciones) │
+│  ├─ Habilidades PC: pc-skills.js (detección de intenciones) │
+│  └─ Integración: desktop-integration.js (puente con app.js) │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 - **Electron** permite reutilizar todo el código HTML/JS/CSS existente
 - **IPC (Inter-Process Communication)** separa la UI del acceso al sistema
 - **contextBridge** expone solo las APIs necesarias, sin exponer Node.js completo al renderer
+- **robotjs** controla mouse, teclado y ventanas de Windows
+- **PowerShell** maneja el portapapeles del sistema
 
 ---
 
