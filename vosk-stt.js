@@ -119,7 +119,7 @@ async function cargarModelo() {
     const files = [];
     for (const name of Object.keys(zip.files)) {
       if (zip.files[name].dir) continue;
-      files.push({ name, data: await zip.files[name].arrayBuffer() });
+      files.push({ name, data: await zip.file(name).async("arrayBuffer") });
     }
 
     // 3. Crear .tar.gz en memoria
