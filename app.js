@@ -12,7 +12,8 @@ const DEFAULTS = {
   escuchaModo: "conversacion",
   language: "es-MX", followUp: 12, handsFree: true, autoStartMic: false,
   cameraDevice: "", imageDetail: "auto", maxImage: "1280", autoAttach: false, mirror: false, memory: true,
-  passLock: false, passphrase: "papá llegó", passTimeout: 10, outlookPrimero: false
+  passLock: false, passphrase: "papá llegó", passTimeout: 10, outlookPrimero: false,
+  motorVoz: "webspeech"
 };
 let passUnlocked = false;
 let passUnlockTime = 0;
@@ -536,7 +537,30 @@ async function activarMicrofono() {
   if (!recognition) { log("Reconocimiento no soportado", "error"); return; }
   listening = true; setEstado("listening");
   lastReconSenal = Date.now();
-  if (window.ViernesNativo) {
+
+  // ── Elegir motor de reconocimiento ──
+  const motor = String(cfg.motorVoz || "webspeech");
+  if (motor === "vosk" && window.VoskSTT) {
+    // Vosk: reconocimiento offline, sin servidor de Google
+    try {
+      const r = await window.VoskSTT.iniciar((texto) => {
+        // Vosk devuelve texto continuo; lo tratamos como una frase final
+        if (speaking) return; // ignora mientras Viernes habla
+        acumularFinal(texto, 0); // confianza 0, Vosk no da confianza por frase
+      });
+      if (r.ok) {
+        log("Vosk offline activado — reconocimiento sin internet", "ok");
+      } else {
+        log("Vosk falló: " + (r.error || "error desconocido"), "error");
+        toast("Vosk no pudo iniciar: " + (r.error || "error desconocido"));
+        // Fallback a Web Speech
+        try { recognition.start(); } catch (e) { log("Error al iniciar micrófono: " + e.message, "error"); }
+      }
+    } catch (e) {
+      log("Vosk error: " + e.message, "error");
+      try { recognition.start(); } catch (e2) { log("Error al iniciar micrófono: " + e2.message, "error"); }
+    }
+  } else if (window.ViernesNativo) {
     // App nativa: el micrófono lo lleva el servicio en primer plano (funciona con la pantalla bloqueada)
     window.viernesNativoTexto = (t) => {
       // Mismo tratamiento que el reconocedor web: ignorar el eco de su propia voz y deduplicar
@@ -566,7 +590,7 @@ async function activarMicrofono() {
   pedirCandado();
   // Oído frontal: línea de audio con AEC+NS+AGC para vigilar la habitación.
   // Con retardo: que el reconocedor tome el micrófono PRIMERO y se asiente.
-  if (VE && !oidoCaidoSesion) {
+  if (VE && !oidoCaidoSesion && motor !== "vosk") {
     setTimeout(() => {
       if (!listening) return; // se desactivó mientras tanto
       VE.abrir().then((ok) => { if (ok) log("Oído frontal activo (cancelación de eco + filtros de ruido)", "ok"); }).catch((e) => { log("Oído frontal no disponible: " + e.message, "warn"); });
@@ -579,6 +603,10 @@ async function activarMicrofono() {
 }
 function desactivarMicrofono() {
   listening = false;
+  // Detener Vosk si está activo
+  if (window.VoskSTT && window.VoskSTT.activo) {
+    try { window.VoskSTT.detener(); } catch (e) {}
+  }
   if (window.ViernesNativo) { try { window.ViernesNativo.detenerEscucha(); } catch (e) {} }
   if (recognition) { try { recognition.stop(); } catch (e) {} }
   setEstado("standby"); $("btnPower").classList.remove("active"); $("btnMic").classList.remove("active");
@@ -2512,6 +2540,7 @@ function aplicarUI() {
   sv("setWakeWords", cfg.wakeWords); sv("setLanguage", cfg.language);
   sv("setFollowUp", cfg.followUp); st("followUpValue", cfg.followUp + " s");
   sv("setEscuchaModo", cfg.escuchaModo);
+  sv("setMotorVoz", cfg.motorVoz);
   sc("setHandsFree", cfg.handsFree); sc("setAutoStartMic", cfg.autoStartMic);
   // Estado del oído anti-ruido: apagado si el usuario lo puso así o si quedó bloqueado 24 h por conflicto
   const soPop = $("setOido");
@@ -2631,6 +2660,11 @@ function bindAjustes() {
   $("setRate").addEventListener("input", () => $("rateValue").textContent = cfg.rate.toFixed(2)+"×");
   $("setPitch").addEventListener("input", () => $("pitchValue").textContent = cfg.pitch.toFixed(2));
   $("setFollowUp").addEventListener("input", () => $("followUpValue").textContent = cfg.followUp+" s");
+  const sMotorW = $("setMotorVoz");
+  if (sMotorW) sMotorW.addEventListener("change", () => {
+    cfg.motorVoz = sMotorW.value; save();
+    log("Motor de voz: " + (sMotorW.value === "vosk" ? "Vosk (offline)" : "Google Web Speech"), "ok");
+  });
   // tabs
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));

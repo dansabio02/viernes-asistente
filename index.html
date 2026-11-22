@@ -238,6 +238,13 @@
                 <option value="libre">Todo lo que se hable</option>
               </select>
             </div>
+            <div class="field-group">
+              <label for="setMotorVoz">Motor de reconocimiento de voz</label>
+              <select id="setMotorVoz">
+                <option value="webspeech">Google Web Speech (nube, necesita internet)</option>
+                <option value="vosk">Vosk (offline, sin internet, modelo español ~39 MB)</option>
+              </select>
+            </div>
             <div class="info-box amber">
               <svg><use href="#i-shield"/></svg>
               <div class="info-body">
@@ -430,6 +437,9 @@
   <script src="escucha.js"></script>
   <script src="vozid.js"></script>
   <script src="app.js"></script>
+
+  <!-- Vosk STT: reconocimiento de voz offline (alternativa a Web Speech API) -->
+  <script src="vosk-stt.js"></script>
 
   <!-- Habilidades de PC (solo funcionan en la app de escritorio Electron) -->
   <script src="viernes-desktop/pc-skills.js"></script>
