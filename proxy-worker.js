@@ -691,6 +691,34 @@ export default {
       }
     }
 
+    // ── VOSK MODELO ESPAÑOL · GET /vosk-model ──
+    // Descarga el modelo Vosk small-es desde alphacephei.com y lo sirve
+    // con CORS para que el navegador pueda usarlo con vosk-browser.
+    if (url.pathname === "/vosk-model" && request.method === "GET") {
+      const cache = caches.default;
+      const cacheKey = new Request("https://viernes-proxy.danielnaula156.workers.dev/vosk-model");
+      let cached = await cache.match(cacheKey);
+      if (cached) return cached;
+      try {
+        const zipRes = await fetch("https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip");
+        if (!zipRes.ok) throw new Error("No se pudo descargar el modelo Vosk: " + zipRes.status);
+        const zipBytes = await zipRes.arrayBuffer();
+        const resp = new Response(zipBytes, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/zip",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET",
+            "Cache-Control": "public, max-age=31536000, immutable"
+          }
+        });
+        ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+        return resp;
+      } catch (e) {
+        return new Response("Error modelo Vosk: " + e.message, { status: 502 });
+      }
+    }
+
     // ── TTS NATURAL (Google) · GET /tts?texto=... ──
     if (url.pathname === "/tts") {
       const texto = url.searchParams.get("texto") || "";

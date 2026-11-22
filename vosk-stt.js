@@ -8,43 +8,96 @@
 
 (function() {
 
-const MODELO_ESP = "vosk-model-small-es-0.42";
-const MODELO_URL = "https://alphacephei.com/vosk/models/" + MODELO_ESP + ".tar.gz";
+const MODELO_URL = "https://viernes-proxy.danielnaula156.workers.dev/vosk-model";
 const CDN_VOSK = "https://cdn.jsdelivr.net/npm/vosk-browser@0.0.8/dist/vosk.js";
+const CDN_JSZIP = "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js";
 
-let Vosk = null;           // Clase Vosk global
-let model = null;          // Modelo cargado
-let recognizer = null;     // Reconocedor activo
-let cargando = false;      // ¿Está descargando/cargando el modelo?
-let listo = false;         // ¿Listo para reconocer?
-let error = null;          // Último error
-let audioContext = null;   // AudioContext para capturar micrófono
-let processor = null;      // ScriptProcessorNode
-let stream = null;         // MediaStream del micrófono
-let onResult = null;       // Callback con el texto reconocido
-let activo = false;        // ¿Está escuchando?
+let Vosk = null;
+let JSZipLib = null;
+let model = null;
+let recognizer = null;
+let cargando = false;
+let listo = false;
+let error = null;
+let audioContext = null;
+let processor = null;
+let stream = null;
+let onResult = null;
+let activo = false;
 
-/* ── Cargar vosk-browser desde CDN ── */
+/* ── Cargar librerías desde CDN ── */
 function cargarVosk() {
   return new Promise((resolve, reject) => {
-    if (window.Vosk) {
-      Vosk = window.Vosk;
-      resolve(Vosk);
-      return;
-    }
+    if (window.Vosk) { Vosk = window.Vosk; resolve(); return; }
     const s = document.createElement("script");
     s.src = CDN_VOSK;
-    s.onload = () => {
-      Vosk = window.Vosk;
-      if (!Vosk) reject(new Error("Vosk no se expuso como window.Vosk"));
-      else resolve(Vosk);
-    };
-    s.onerror = () => reject(new Error("No se pudo cargar vosk-browser desde CDN"));
+    s.onload = () => { Vosk = window.Vosk; resolve(); };
+    s.onerror = () => reject(new Error("No se cargó vosk-browser"));
     document.head.appendChild(s);
   });
 }
 
-/* ── Descargar y cargar el modelo de español ── */
+function cargarJSZip() {
+  return new Promise((resolve, reject) => {
+    if (window.JSZip) { JSZipLib = window.JSZip; resolve(); return; }
+    const s = document.createElement("script");
+    s.src = CDN_JSZIP;
+    s.onload = () => { JSZipLib = window.JSZip; resolve(); };
+    s.onerror = () => reject(new Error("No se cargó JSZip"));
+    document.head.appendChild(s);
+  });
+}
+
+/* ── Crear tar.gz desde archivos extraídos del zip ──
+   Vosk-browser necesita .tar.gz. El modelo de Vosk viene como .zip,
+   así que extraemos y re-empaquetamos como tar.gz en memoria. */
+function crearCabeceraTar(nombre, tamano) {
+  const buf = new Uint8Array(512);
+  const nombBytes = new TextEncoder().encode(nombre);
+  const nomLen = Math.min(nombBytes.length, 100);
+  buf.set(nombBytes.slice(0, nomLen), 0);
+  // Tipo de archivo: '0' = archivo normal
+  buf[156] = 0x30; // '0'
+  // Tamaño en octal (12 bytes)
+  const tamOct = tamano.toString(8);
+  for (let i = 0; i < tamOct.length; i++) buf[124 + 11 - i] = tamOct.charCodeAt(tamOct.length - 1 - i);
+  // Checksum (8 bytes, calculado sobre los 512 bytes con espacios en el campo de checksum)
+  let suma = 0;
+  for (let i = 0; i < 512; i++) suma += buf[i];
+  // Campo de checksum: 6 dígitos octales + null + space
+  const chkOct = suma.toString(8);
+  for (let i = 0; i < chkOct.length; i++) buf[148 + 6 - i] = chkOct.charCodeAt(chkOct.length - 1 - i);
+  buf[154] = 0x20; // space
+  buf[155] = 0x00; // null
+  return buf;
+}
+
+async function crearTarGz(files) {
+  const partes = [];
+  for (const f of files) {
+    const cab = crearCabeceraTar(f.name, f.data.byteLength);
+    partes.push(cab);
+    partes.push(f.data);
+    // Rellenar hasta múltiplo de 512
+    const rem = f.data.byteLength % 512;
+    if (rem > 0) partes.push(new Uint8Array(512 - rem));
+  }
+  // Dos bloques de ceros al final
+  partes.push(new Uint8Array(1024));
+  const tarBytes = new Uint8Array(partes.reduce((s, p) => s + p.byteLength, 0));
+  let off = 0;
+  for (const p of partes) { tarBytes.set(p, off); off += p.byteLength; }
+
+  // Comprimir con gzip usando CompressionStream (disponible en Workers y navegadores modernos)
+  const stream = new CompressionStream("gzip");
+  const writer = stream.writable.getWriter();
+  writer.write(tarBytes);
+  writer.close();
+  const gzipped = await new Response(stream.readable).arrayBuffer();
+  return gzipped;
+}
+
+/* ── Descargar, extraer y cargar el modelo ── */
 async function cargarModelo() {
   if (listo) return { ok: true, mensaje: "Ya listo" };
   if (cargando) return { ok: false, error: "Ya se está cargando el modelo" };
@@ -54,18 +107,34 @@ async function cargarModelo() {
 
   try {
     await cargarVosk();
+    await cargarJSZip();
 
-    // Vosk-browser carga el modelo desde una URL .tar.gz
-    // Usamos Vosk.createModel que maneja la carga asíncrona y el Web Worker
-    model = await Vosk.createModel(MODELO_URL);
+    // 1. Descargar el modelo .zip desde el proxy worker
+    const zipRes = await fetch(MODELO_URL);
+    if (!zipRes.ok) throw new Error("No se pudo descargar el modelo: " + zipRes.status);
+    const zipBytes = await zipRes.arrayBuffer();
 
-    if (!model.ready) {
-      throw new Error("El modelo no está listo después de cargar");
+    // 2. Extraer con JSZip
+    const zip = await JSZipLib.loadAsync(zipBytes);
+    const files = [];
+    for (const name of Object.keys(zip.files)) {
+      if (zip.files[name].dir) continue;
+      files.push({ name, data: await zip.files[name].arrayBuffer() });
     }
+
+    // 3. Crear .tar.gz en memoria
+    const tarGz = await crearTarGz(files);
+
+    // 4. Crear URL blob para pasar a Vosk.createModel()
+    const blob = new Blob([tarGz], { type: "application/gzip" });
+    const blobUrl = URL.createObjectURL(blob);
+
+    // 5. Cargar modelo en Vosk
+    model = await Vosk.createModel(blobUrl);
+    if (!model.ready) throw new Error("El modelo no quedó listo");
 
     recognizer = model.KaldiRecognizer();
 
-    // Configurar eventos de resultado
     recognizer.on("result", (message) => {
       if (!activo) return;
       const texto = (message.result && message.result.text) || "";
@@ -75,11 +144,13 @@ async function cargarModelo() {
     });
 
     recognizer.on("partialresult", (message) => {
-      // Resultados parciales opcionales - no los usamos para evitar ruido
+      // Resultados parciales opcionales
     });
 
     listo = true;
     cargando = false;
+    // Liberar el blob URL después de cargar el modelo
+    URL.revokeObjectURL(blobUrl);
     return { ok: true, mensaje: "Modelo de español cargado (Vosk offline)" };
   } catch (e) {
     cargando = false;
@@ -116,14 +187,12 @@ async function iniciar(callback) {
     audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
     const fuente = audioContext.createMediaStreamSource(stream);
 
-    // ScriptProcessorNode para capturar PCM crudo
     const bufferSize = 4096;
     processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
 
     processor.onaudioprocess = (ev) => {
       if (!activo) return;
       const input = ev.inputBuffer.getChannelData(0);
-      // Vosk-browser acepta AudioBuffer directamente
       recognizer.acceptWaveform(input);
     };
 
@@ -158,7 +227,7 @@ function estado() {
     cargando: cargando,
     error: error,
     motor: "vosk-offline",
-    modelo: MODELO_ESP
+    modelo: "vosk-model-small-es-0.42"
   };
 }
 
